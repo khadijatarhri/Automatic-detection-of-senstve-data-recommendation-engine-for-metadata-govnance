@@ -46,37 +46,40 @@
           <ul
             class="font-medium flex flex-col p-4 md:p-0 mt-4 border border-gray-100 rounded-lg bg-gray-50 md:flex-row md:space-x-8 rtl:space-x-reverse md:mt-0 md:border-0 md:bg-white dark:bg-gray-800 md:dark:bg-gray-900 dark:border-gray-700"
           >
-            <li>
-              <a
-                href="{% url 'csv_anonymizer:upload' %}"
-                class="block py-2 px-3 text-white bg-blue-700 rounded-sm md:bg-transparent md:text-blue-700 md:p-0 dark:text-white md:dark:text-blue-500"
-                aria-current="page"
-                >Analyse</a
-              >
-            </li>
-            <li>  
-              <a  
-                href="{% url 'csv_anonymizer:statistics' %}"  
-                class="block py-2 px-3 {% if request.resolver_match.url_name == 'statistics' %}text-white bg-blue-700 rounded-sm md:bg-transparent md:text-blue-700{% else %}text-gray-900 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:border-0 md:hover:text-blue-700{% endif %} md:p-0 dark:text-white md:dark:hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent"  
-                {% if request.resolver_match.url_name == 'statistics' %}aria-current="page"{% endif %}  
-                >Statistiques</a  
-              >  
-            </li>
-            <li>  
-              <a  
-                href="{% url 'authapp:admin' %}"  
-                class="block py-2 px-3 {% if request.resolver_match.url_name == 'admin' %}text-white bg-blue-700 rounded-sm md:bg-transparent md:text-blue-700{% else %}text-gray-900 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:border-0 md:hover:text-blue-700{% endif %} md:p-0 dark:text-white md:dark:hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent"  
-                {% if request.resolver_match.url_name == 'admin' %}aria-current="page"{% endif %}  
-                >Administration</a  
-              >  
-            </li>
-            <li>  
-              <a  
-                href="{% url 'authapp:logout' %}"  
-                class="block py-2 px-3 text-gray-900 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:border-0 md:hover:text-blue-700 md:p-0 dark:text-white md:dark:hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent"  
-                >Déconnexion</a  
-              >  
-            </li> 
+            <!-- Analyse -->  
+<li>  
+  <a href="{% url 'csv_anonymizer:upload' %}"  
+     class="block py-2 px-3 {% if request.resolver_match.url_name == 'upload' %}text-white bg-blue-700 rounded-sm md:bg-transparent md:text-blue-700{% else %}text-gray-900 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:border-0 md:hover:text-blue-700{% endif %} md:p-0 dark:text-white md:dark:hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent"  
+     {% if request.resolver_match.url_name == 'upload' %}aria-current="page"{% endif %}>  
+    Analyse  
+  </a>  
+</li>  
+  
+
+  
+<!-- Statistiques -->  
+<li>  
+  <a href="{% url 'csv_anonymizer:statistics' %}"  
+     class="block py-2 px-3 {% if request.resolver_match.url_name == 'statistics' %}text-white bg-blue-700 rounded-sm md:bg-transparent md:text-blue-700{% else %}text-gray-900 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:border-0 md:hover:text-blue-700{% endif %} md:p-0 dark:text-white md:dark:hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent"  
+     {% if request.resolver_match.url_name == 'statistics' %}aria-current="page"{% endif %}>  
+    Statistiques  
+  </a>  
+</li>  
+  
+<!-- Administration -->  
+<li>  
+  <a href="{% url 'authapp:admin' %}"  
+     class="block py-2 px-3 {% if request.resolver_match.url_name == 'admin' %}text-white bg-blue-700 rounded-sm md:bg-transparent md:text-blue-700{% else %}text-gray-900 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:border-0 md:hover:text-blue-700{% endif %} md:p-0 dark:text-white md:dark:hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent"  
+     {% if request.resolver_match.url_name == 'admin' %}aria-current="page"{% endif %}>  
+    Administration  
+  </a>  
+</li>
+<li>  
+  <a href="{% url 'authapp:logout' %}"  
+     class="block py-2 px-3 text-gray-900 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:border-0 md:hover:text-blue-700 md:p-0 dark:text-white md:dark:hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent">  
+    Déconnexion  
+  </a>  
+</li>
           </ul>
         </div>
       </div>
