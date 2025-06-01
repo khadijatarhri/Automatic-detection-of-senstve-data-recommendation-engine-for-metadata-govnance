@@ -60,7 +60,7 @@ def login_form(request):
         if check_password(password, user['password']):
             print("Login success")  # DEBUG
             request.session['user_email'] = email
-            return redirect('csv_anonymizer:upload')
+            return redirect('authapp:home')
         else:
             print("Invalid password")  # DEBUG
             messages.error(request, "Invalid email or password.")
@@ -135,13 +135,13 @@ class AdminView(View):
         elif action == 'delete':  
             return self.delete_user(request)  
           
-        return redirect('admin')  
+        return redirect('authapp:admin')  
       
     def create_user(self, request):  
         data = request.POST  
         if users.find_one({"email": data["email"]}):  
             messages.error(request, "Email already exists")  
-            return redirect('admin')  
+            return redirect('authapp:admin')  
           
         new_user = {  
             "name": data["name"],  
@@ -151,7 +151,7 @@ class AdminView(View):
         }  
         users.insert_one(new_user)  
         messages.success(request, "User created successfully")  
-        return redirect('admin')  
+        return redirect('authapp:admin')  
       
     def update_user(self, request):  
         user_id = request.POST.get('user_id')  
@@ -169,13 +169,13 @@ class AdminView(View):
             {"$set": update_data}  
         )  
         messages.success(request, "User updated successfully")  
-        return redirect('admin')  
+        return redirect('authapp:admin')  
       
     def delete_user(self, request):  
         user_id = request.POST.get('user_id')  
         users.delete_one({"_id": ObjectId(user_id)})  
         messages.success(request, "User deleted successfully")  
-        return redirect('admin')
+        return redirect('authapp:admin')
 
 def logout_view(request):  
     request.session.flush()  # Supprime toutes les données de session  

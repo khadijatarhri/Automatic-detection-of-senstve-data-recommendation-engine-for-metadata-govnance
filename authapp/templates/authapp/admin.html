@@ -163,7 +163,155 @@
         </div>  
     </main>  
       
-    <!-- Modal Créer/Modifier (reste identique) -->  
+    <!-- Modal Créer/Modifier Utilisateur -->  
+<div id="userModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">  
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">  
+        <div class="mt-3">  
+            <div class="flex items-center justify-between mb-4">  
+                <h3 class="text-lg font-medium text-gray-900" id="modalTitle">Ajouter un Utilisateur</h3>  
+                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600">  
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">  
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>  
+                    </svg>  
+                </button>  
+            </div>  
+              
+            <form id="userForm" method="post" class="space-y-4">  
+                {% csrf_token %}  
+                <input type="hidden" name="action" id="formAction" value="create">  
+                <input type="hidden" name="user_id" id="userId" value="">  
+                  
+                <div>  
+                    <label for="name" class="block text-sm font-medium text-gray-700">Nom</label>  
+                    <input type="text" name="name" id="name" required  
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">  
+                </div>  
+                  
+                <div>  
+                    <label for="email" class="block text-sm font-medium text-gray-700">Email</label>  
+                    <input type="email" name="email" id="email" required  
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">  
+                </div>  
+                  
+                <div>  
+                    <label for="password" class="block text-sm font-medium text-gray-700">Mot de passe</label>  
+                    <input type="password" name="password" id="password"  
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">  
+                    <p class="text-xs text-gray-500 mt-1" id="passwordHelp">Laissez vide pour conserver le mot de passe actuel (modification uniquement)</p>  
+                </div>  
+                  
+                <div>  
+                    <label for="role" class="block text-sm font-medium text-gray-700">Rôle</label>  
+                    <select name="role" id="role"  
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">  
+                        <option value="user">Utilisateur</option>  
+                        <option value="admin">Administrateur</option>  
+                    </select>  
+                </div>  
+                  
+                <div class="flex justify-end space-x-3 pt-4">  
+                    <button type="button" onclick="closeModal()"  
+                            class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">  
+                        Annuler  
+                    </button>  
+                    <button type="submit"  
+                            class="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">  
+                        <span id="submitText">Ajouter</span>  
+                    </button>  
+                </div>  
+            </form>  
+        </div>  
+    </div>  
+</div>  
+  
+<!-- Modal de confirmation de suppression -->  
+<div id="deleteModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">  
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">  
+        <div class="mt-3 text-center">  
+            <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">  
+                <svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">  
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>  
+                </svg>  
+            </div>  
+            <h3 class="text-lg leading-6 font-medium text-gray-900 mt-2">Confirmer la suppression</h3>  
+            <div class="mt-2 px-7 py-3">  
+                <p class="text-sm text-gray-500">Êtes-vous sûr de vouloir supprimer cet utilisateur ? Cette action est irréversible.</p>  
+            </div>  
+            <div class="flex justify-center space-x-3 px-4 py-3">  
+                <button onclick="closeDeleteModal()" type="button"  
+                        class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200">  
+                    Annuler  
+                </button>  
+                <form id="deleteForm" method="post" class="inline">  
+                    {% csrf_token %}  
+                    <input type="hidden" name="action" value="delete">  
+                    <input type="hidden" name="user_id" id="deleteUserId" value="">  
+                    <button type="submit"  
+                            class="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700">  
+                        Supprimer  
+                    </button>  
+                </form>  
+            </div>  
+        </div>  
+    </div>  
+</div>
     <div> 
+        <script>  
+            // Fonctions pour gérer les modals  
+            function openCreateModal() {  
+                document.getElementById('modalTitle').textContent = 'Ajouter un Utilisateur';  
+                document.getElementById('formAction').value = 'create';  
+                document.getElementById('submitText').textContent = 'Ajouter';  
+                document.getElementById('userId').value = '';  
+                document.getElementById('userForm').reset();  
+                document.getElementById('password').required = true;  
+                document.getElementById('passwordHelp').style.display = 'none';  
+                document.getElementById('userModal').classList.remove('hidden');  
+            }  
+              
+            function openEditModalFromData(button) {  
+                const userId = button.getAttribute('data-user-id');  
+                const userName = button.getAttribute('data-user-name');  
+                const userEmail = button.getAttribute('data-user-email');  
+                const userRole = button.getAttribute('data-user-role');  
+                  
+                document.getElementById('modalTitle').textContent = 'Modifier l\'Utilisateur';  
+                document.getElementById('formAction').value = 'update';  
+                document.getElementById('submitText').textContent = 'Modifier';  
+                document.getElementById('userId').value = userId;  
+                document.getElementById('name').value = userName;  
+                document.getElementById('email').value = userEmail;  
+                document.getElementById('role').value = userRole;  
+                document.getElementById('password').required = false;  
+                document.getElementById('password').value = '';  
+                document.getElementById('passwordHelp').style.display = 'block';  
+                document.getElementById('userModal').classList.remove('hidden');  
+            }  
+              
+            function deleteUser(userId) {  
+                document.getElementById('deleteUserId').value = userId;  
+                document.getElementById('deleteModal').classList.remove('hidden');  
+            }  
+              
+            function closeModal() {  
+                document.getElementById('userModal').classList.add('hidden');  
+            }  
+              
+            function closeDeleteModal() {  
+                document.getElementById('deleteModal').classList.add('hidden');  
+            }  
+              
+            // Fermer les modals en cliquant à l'extérieur  
+            window.onclick = function(event) {  
+                const userModal = document.getElementById('userModal');  
+                const deleteModal = document.getElementById('deleteModal');  
+                if (event.target === userModal) {  
+                    closeModal();  
+                }  
+                if (event.target === deleteModal) {  
+                    closeDeleteModal();  
+                }  
+            }  
+            </script>
 </body>
 </html>
