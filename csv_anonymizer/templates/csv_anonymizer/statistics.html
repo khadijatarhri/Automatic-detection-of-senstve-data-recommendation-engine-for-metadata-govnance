@@ -1,0 +1,285 @@
+{% load static %}  
+<!DOCTYPE html>  
+<html lang="fr">  
+<head>  
+    <meta charset="UTF-8">  
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">  
+    <title>Statistiques - Données Sensibles</title> 
+    <script src="https://cdn.tailwindcss.com"></script> 
+    <!--<link rel="stylesheet" href="{% static 'css/dist/styles.css' %}">-->   
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>  
+</head>  
+<body class="bg-gray-50">  
+    {% include 'csv_anonymizer/navigationmenuBar.html' %}  
+      
+    <!-- Données JSON pour JavaScript -->  
+    {{ entity_stats|json_script:"entity-data" }}  
+    {{ risk_levels|json_script:"risk-data" }}  
+      
+    <main class="container mx-auto px-4 py-8 mt-20">  
+        <div class="max-w-7xl mx-auto">  
+            <h1 class="text-3xl font-bold text-gray-900 mb-8">Statistiques des Données Sensibles</h1>  
+              
+            <!-- Cards de résumé -->  
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">  
+                <div class="bg-white rounded-lg shadow-md p-6 border border-gray-200">  
+                    <div class="flex items-center">  
+                        <div class="p-3 rounded-full bg-blue-100 text-blue-600">  
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">  
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>  
+                            </svg>  
+                        </div>  
+                        <div class="ml-4">  
+                            <h3 class="text-lg font-semibold text-gray-700">Fichiers Analysés</h3>  
+                            <p class="text-3xl font-bold text-blue-600">{{ total_files }}</p>  
+                        </div>  
+                    </div>  
+                </div>  
+                  
+                <div class="bg-white rounded-lg shadow-md p-6 border border-gray-200">  
+                    <div class="flex items-center">  
+                        <div class="p-3 rounded-full bg-green-100 text-green-600">  
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">  
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>  
+                            </svg>  
+                        </div>  
+                        <div class="ml-4">  
+                            <h3 class="text-lg font-semibold text-gray-700">Entités Détectées</h3>  
+                            <p class="text-3xl font-bold text-green-600" id="total-entities">0</p>  
+                        </div>  
+                    </div>  
+                </div>  
+                  
+                <div class="bg-white rounded-lg shadow-md p-6 border border-gray-200">  
+                    <div class="flex items-center">  
+                        <div class="p-3 rounded-full bg-yellow-100 text-yellow-600">  
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">  
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>  
+                            </svg>  
+                        </div>  
+                        <div class="ml-4">  
+                            <h3 class="text-lg font-semibold text-gray-700">Risque Critique</h3>  
+                            <p class="text-3xl font-bold text-yellow-600" id="critical-risk">0%</p>  
+                        </div>  
+                    </div>  
+                </div>  
+                  
+                <div class="bg-white rounded-lg shadow-md p-6 border border-gray-200">  
+                    <div class="flex items-center">  
+                        <div class="p-3 rounded-full bg-purple-100 text-purple-600">  
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">  
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>  
+                            </svg>  
+                        </div>  
+                        <div class="ml-4">  
+                            <h3 class="text-lg font-semibold text-gray-700">Score Moyen</h3>  
+                            <p class="text-3xl font-bold text-purple-600" id="average-score">0</p>  
+                        </div>  
+                    </div>  
+                </div>  
+            </div>  
+              
+            <!-- Graphiques -->  
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">  
+                <!-- Pie Chart -->  
+                <div class="bg-white rounded-lg shadow-md p-6 border border-gray-200">  
+                    <div class="flex items-center mb-4">  
+                        <h2 class="text-xl font-semibold text-gray-800">Répartition des Types de Données</h2>  
+                    </div>  
+                    <div class="relative h-80">  
+                        <canvas id="entityPieChart"></canvas>  
+                    </div>  
+                </div>  
+                  
+                <!-- Histogramme -->  
+                <div class="bg-white rounded-lg shadow-md p-6 border border-gray-200">  
+                    <div class="flex items-center mb-4">  
+                        <h2 class="text-xl font-semibold text-gray-800">Niveaux de Risque</h2>  
+                    </div>  
+                    <div class="relative h-80">  
+                        <canvas id="riskHistogram"></canvas>  
+                    </div>  
+                </div>  
+            </div>  
+              
+            <!-- Tableau détaillé -->  
+            <div class="bg-white rounded-lg shadow-md border border-gray-200">  
+                <div class="px-6 py-4 border-b border-gray-200">  
+                    <h2 class="text-xl font-semibold text-gray-800">Détails des Analyses</h2>  
+                </div>  
+                <div class="overflow-x-auto">  
+                    <table class="min-w-full divide-y divide-gray-200">  
+                        <thead class="bg-gray-50">  
+                            <tr>  
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type d'Entité</th>  
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Occurrences</th>  
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pourcentage</th>  
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Niveau de Risque</th>  
+                            </tr>  
+                        </thead>  
+                        <tbody id="entity-table" class="bg-white divide-y divide-gray-200">  
+                            <!-- Contenu généré par JavaScript -->  
+                        </tbody>  
+                    </table>  
+                </div>  
+            </div>  
+        </div>  
+    </main>  
+      
+    <script>  
+        // Récupération des données JSON  
+        const entityData = JSON.parse(document.getElementById('entity-data').textContent);  
+        const riskData = JSON.parse(document.getElementById('risk-data').textContent);  
+          
+        // Calcul des statistiques pour les cards  
+        const totalEntities = Object.values(entityData).reduce((sum, value) => sum + value, 0);  
+        document.getElementById('total-entities').textContent = totalEntities;  
+        document.getElementById('critical-risk').textContent = riskData.critique + '%';  
+          
+        // Configuration du pie chart  
+        const entityCtx = document.getElementById('entityPieChart').getContext('2d');  
+        new Chart(entityCtx, {  
+            type: 'pie',  
+            data: {  
+                labels: Object.keys(entityData),  
+                datasets: [{  
+                    data: Object.values(entityData),  
+                    backgroundColor: [  
+                        '#3B82F6', '#EF4444', '#10B981', '#F59E0B',  
+                        '#8B5CF6', '#EC4899', '#6B7280', '#F97316',  
+                        '#06B6D4', '#84CC16'  
+                    ],  
+                    borderWidth: 2,  
+                    borderColor: '#ffffff'  
+                }]  
+            },  
+            options: {  
+                responsive: true,  
+                maintainAspectRatio: false,  
+                plugins: {  
+                    legend: {  
+                        position: 'bottom',  
+                        labels: {  
+                            padding: 20,  
+                            usePointStyle: true  
+                        }  
+                    },  
+                    tooltip: {  
+                        callbacks: {  
+                            label: function(context) {  
+                                const total = context.dataset.data.reduce((sum, value) => sum + value, 0);  
+                                const percentage = ((context.parsed / total) * 100).toFixed(1);  
+                                return context.label + ': ' + context.parsed + ' (' + percentage + '%)';  
+                            }  
+                        }  
+                    }  
+                }  
+            }  
+        });  
+          
+        // Configuration de l'histogramme  
+        const riskCtx = document.getElementById('riskHistogram').getContext('2d');  
+        new Chart(riskCtx, {  
+            type: 'bar',  
+            data: {  
+                labels: ['Critique', 'Élevé', 'Moyen', 'Faible'],  
+                datasets: [{  
+                    label: 'Pourcentage',  
+                    data: [  
+                        riskData.critique || 0,  
+                        riskData.élevé || 0,  
+                        riskData.moyen || 0,  
+                        riskData.faible || 0  
+                    ],  
+                    backgroundColor: [  
+                        '#EF4444',  
+                        '#F59E0B',   
+                        '#10B981',  
+                        '#3B82F6'  
+                    ],  
+                    borderColor: [  
+                        '#DC2626',  
+                        '#D97706',  
+                        '#059669',  
+                        '#2563EB'  
+                    ],  
+                    borderWidth: 1  
+                }]  
+            },  
+            options: {  
+                responsive: true,  
+                maintainAspectRatio: false,  
+                scales: {  
+                    y: {  
+                        beginAtZero: true,  
+                        max: 100,  
+                        ticks: {  
+                            callback: function(value) {  
+                                return value + '%';  
+                            }  
+                        }  
+                    }  
+                },  
+                plugins: {  
+                    legend: {  
+                        display: false  
+                    },  
+                    tooltip: {  
+                        callbacks: {  
+                            label: function(context) {  
+                                return context.dataset.label + ': ' + context.parsed.y + '%';  
+                            }  
+                        }  
+                    }  
+                }  
+            }  
+        });  
+          
+        // Remplir le tableau détaillé  
+        function populateTable() {  
+            const tableBody = document.getElementById('entity-table');  
+            const total = Object.values(entityData).reduce((sum, value) => sum + value, 0);  
+              
+            Object.entries(entityData).forEach(([entity, count]) => {  
+                const percentage = ((count / total) * 100).toFixed(1);  
+                const riskLevel = getRiskLevel(entity);  
+                  
+                const row = document.createElement('tr');  
+                row.innerHTML = `  
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${entity}</td>  
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${count}</td>  
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${percentage}%</td>  
+                    <td class="px-6 py-4 whitespace-nowrap">  
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getRiskBadgeClass(riskLevel)}">  
+                            ${riskLevel}  
+                        </span>  
+                    </td>  
+                `;  
+                tableBody.appendChild(row);  
+            });  
+        }  
+          
+        function getRiskLevel(entity) {  
+            // Logique pour déterminer le niveau de risque selon le type d'entité  
+            const highRisk = ['PERSON', 'EMAIL_ADDRESS', 'PHONE_NUMBER', 'CREDIT_CARD', 'IBAN_CODE'];  
+            const mediumRisk = ['DATE_TIME', 'LOCATION', 'IP_ADDRESS'];  
+              
+            if (highRisk.includes(entity)) return 'Critique';  
+            if (mediumRisk.includes(entity)) return 'Élevé';  
+            return 'Moyen';  
+        }  
+          
+        function getRiskBadgeClass(riskLevel) {  
+            switch(riskLevel) {  
+                case 'Critique': return 'bg-red-100 text-red-800';  
+                case 'Élevé': return 'bg-yellow-100 text-yellow-800';  
+                case 'Moyen': return 'bg-green-100 text-green-800';  
+                default: return 'bg-blue-100 text-blue-800';  
+            }  
+        }  
+          
+        // Initialiser le tableau  
+        populateTable();  
+    </script>  
+</body>  
+</html>

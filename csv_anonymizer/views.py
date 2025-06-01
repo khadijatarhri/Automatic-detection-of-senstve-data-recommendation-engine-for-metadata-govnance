@@ -1,173 +1,220 @@
-from django.shortcuts import render, redirect  
-from django.http import HttpResponse, JsonResponse  
-from django.views import View  
-from pymongo import MongoClient  
-from presidio_analyzer import AnalyzerEngine  
-from presidio_anonymizer import AnonymizerEngine  
-from presidio_anonymizer.entities import OperatorConfig  
-import pandas as pd  
-from presidio_structured import StructuredEngine, PandasAnalysisBuilder  
 import csv  
 import io  
-import json  
-from db_connections import db as main_db    
-import datetime    
+import os  
 from bson import ObjectId  
+from django.conf import settings  
+from django.shortcuts import render, redirect  
+from django.views import View  
+from presidio_analyzer import AnalyzerEngine, RecognizerRegistry, PatternRecognizer, Pattern  
+from presidio_anonymizer import AnonymizerEngine  
+from pymongo import MongoClient  
+from django.http import HttpResponse, JsonResponse  
+from presidio_anonymizer.entities import OperatorConfig  
   
-# Connexion à MongoDB pour les données CSV  
-client = MongoClient('mongodb://localhost:27017/')  
-csv_db = client['csv_anonymizer_db']  
-collection = csv_db['csv_data']  
+  
+# === Connexion MongoDB ===  
+client = MongoClient("mongodb://localhost:27017/")  
+db = client["anonymisation_db"]  
+collection = db["csv_files"]  
+jobs_collection = db["anonymisation_jobs"]  
+  
+# === Détection personnalisée pour le Maroc ===  
+class CustomPresidioAnalyzer:  
+    def __init__(self):  
+        self.analyzer = AnalyzerEngine()  
+        self.add_custom_recognizers()  
+  
+    def add_custom_recognizers(self):  
+        recognizers = [  
+            {  
+                "name": "Moroccan CIN",  
+                "entity": "CIN",  
+                "pattern": r'\b([A-Z]{1,2}\d{4,6})\b'  
+            },  
+            {  
+                "name": "Moroccan Phone",  
+                "entity": "PHONE_MA",  
+                "pattern": r'\b(0[5-7]\d{8})\b'  
+            },  
+            {  
+                "name": "Moroccan IBAN",  
+                "entity": "IBAN_MA",  
+                "pattern": r'\bMA\d{24}\b'  
+            },  
+            {  
+                "name": "Moroccan RIB",  
+                "entity": "RIB_MA",  
+                "pattern": r'\b\d{24}\b'  
+            },  
+        ]  
+        for rec in recognizers:  
+            pattern = Pattern(name=rec["name"], regex=rec["pattern"], score=0.8)  
+            recognizer = PatternRecognizer(supported_entity=rec["entity"], patterns=[pattern])  
+            self.analyzer.registry.add_recognizer(recognizer)  
+  
+    def analyze_text(self, text):  
+        return self.analyzer.analyze(text=text, language="en")  
   
   
+custom_analyzer = CustomPresidioAnalyzer()  
+anonymizer = AnonymizerEngine()  
+  
+  
+# === Vue Upload ===  
 class UploadCSVView(View):  
     def get(self, request):  
-        if not request.session.get("user_email"):  
-            return redirect('login_form')  
         return render(request, 'csv_anonymizer/upload.html')  
   
     def post(self, request):  
-        # Vérifiez l'authentification  
-        user_email = request.session.get("user_email")  
-        if not user_email:  
-            return redirect('login_form')  
+        uploaded_file = request.FILES['csv_file']  
+          
+        # Lire le contenu du fichier une seule fois  
+        csv_content = uploaded_file.read().decode('utf-8')  
+          
+        # Parser le CSV  
+        csv_reader = csv.reader(io.StringIO(csv_content))  
+        header = next(csv_reader)  
+        sample_rows = [row for _, row in zip(range(10), csv_reader)]  
   
-        csv_file = request.FILES.get('csv_file')  
-        if not csv_file:  
-            return render(request, 'csv_anonymizer/upload.html', {'error': 'Aucun fichier sélectionné'})  
+        # Analyser les entités sensibles  
+        sensitive_columns = {}  
+        for col_index, column_name in enumerate(header):  
+            column_data = ' '.join(row[col_index] for row in sample_rows if len(row) > col_index)  
+            results = custom_analyzer.analyze_text(column_data)  
+            entities = list({result.entity_type for result in results})  
+            if entities:  
+                sensitive_columns[column_name] = entities  
   
-        if not csv_file.name.endswith('.csv'):  
-            return render(request, 'csv_anonymizer/upload.html', {'error': 'Le fichier doit être au format CSV'})  
-  
-        csv_data = []  
-        csv_file_data = csv_file.read().decode('utf-8')  
-        reader = csv.reader(io.StringIO(csv_file_data))  
-        headers = next(reader)  
-  
-        for row in reader:  
-            row_data = {}  
-            for i, header in enumerate(headers):  
-                row_data[header] = row[i]  
-            csv_data.append(row_data)  
-  
-        # Utiliser PyMongo directement pour créer le job  
-        job_data = {    
-            'user_email': request.session.get('user_email'),    
-            'original_filename': csv_file.name,  # Corrigé: utiliser csv_file au lieu de uploaded_file  
-            'upload_date': datetime.datetime.now(),    
-            'status': 'pending'    
-        }    
-        result = main_db.anonymization_jobs.insert_one(job_data)    
-        job_id = result.inserted_id  
-  
-        # Stocker les données CSV avec l'ID du job  
-        collection.insert_one({  
-            'job_id': str(job_id),  # Corrigé: utiliser job_id au lieu de job.id  
-            'headers': headers,  
-            'data': csv_data  
+        # Stocker dans MongoDB avec le contenu  
+        job_id = jobs_collection.insert_one({  
+            "filename": uploaded_file.name,  
+            "csv_content": csv_content,  
+            "sensitive_columns": sensitive_columns,  
+            "status": "uploaded"  
+        }).inserted_id  
+          
+        # Filtrer les entités non pertinentes  
+        excluded_entities = {'US_DRIVER_LICENSE', 'US_BANK_NUMBER', 'US_PASSPORT', 'UK_NHS', 'IN_AADHAAR'}  
+          
+        detected_entities = set()  
+        for entities_list in sensitive_columns.values():  
+            for entity in entities_list:  
+                if entity not in excluded_entities:  
+                    detected_entities.add(entity)  
+          
+        return render(request, 'csv_anonymizer/select_entities.html', {  
+            "job_id": str(job_id),  
+            "detected_entities": list(detected_entities),  
+            "sensitive_columns": sensitive_columns  
         })  
   
-        # Analyser les entités dans un échantillon des données  
-        analyzer = AnalyzerEngine()  
-        detected_entities = set()  
   
-        for row in csv_data[:10]:  
-            for header, value in row.items():  
-                if isinstance(value, str):  
-                    results = analyzer.analyze(text=value, language='en')  
-                    for result in results:  
-                        detected_entities.add(result.entity_type)  
+# === Vue Sélection des entités ===  
+class ProcessCSVView(View):  
+    def get(self, request, job_id):  
+        try:  
+            job = jobs_collection.find_one({"_id": ObjectId(job_id)})  
+        except Exception:  
+            return render(request, 'csv_anonymizer/error.html', {"message": "ID de tâche invalide."})  
   
         return render(request, 'csv_anonymizer/select_entities.html', {  
-            'job_id': str(job_id),  # Corrigé: convertir en string pour le template  
-            'detected_entities': list(detected_entities),  
-            'headers': headers  
+            "job_id": job_id,  
+            "sensitive_columns": job.get("sensitive_columns", {})  
         })  
   
-  
-class ProcessCSVView(View):  
     def post(self, request, job_id):  
-        # Vérifiez l'authentification  
-        if not request.session.get("user_email"):  
-            return redirect('login_form')  
-          
-        # Convertir le string job_id en ObjectId MongoDB si nécessaire  
         try:  
-            if len(job_id) == 24:  # ObjectId standard length  
-                object_id = ObjectId(job_id)  
-            else:  
-                object_id = job_id  
-        except:  
-            return JsonResponse({'error': 'ID invalide'}, status=400)  
-          
-        # Récupérer les entités sélectionnées  
+            job = jobs_collection.find_one({"_id": ObjectId(job_id)})  
+        except Exception:  
+            return render(request, 'csv_anonymizer/error.html', {"message": "ID de tâche invalide."})  
+  
         selected_entities = request.POST.getlist('entities')  
-          
-        # Récupérer les données de MongoDB  
-        job_data = collection.find_one({'job_id': str(object_id)})  
-        if not job_data:  
-            return JsonResponse({'error': 'Données non trouvées'}, status=404)  
-          
-        headers = job_data['headers']  
-        csv_data = job_data['data']  
-          
-        # Convertir en DataFrame pandas  
-        df = pd.DataFrame(csv_data)  
-          
-        # Initialiser les moteurs Presidio  
-        analyzer = AnalyzerEngine()  
-        anonymizer = AnonymizerEngine()  
-          
-        # Créer une copie du DataFrame pour la sortie  
-        output_df = df.copy()  
-          
-        # Pour chaque colonne du DataFrame  
-        for column in df.columns:  
-            # Pour chaque ligne dans cette colonne  
-            for index, value in df[column].items():  
-                # Vérifier si la valeur est une chaîne avant de l'analyser  
-                if isinstance(value, str):  
-                    # Analyser pour détecter les entités  
-                    results = analyzer.analyze(text=value, language='en')  
-                      
-                    # Filtrer les résultats pour ne garder que les entités sélectionnées  
-                    results = [r for r in results if r.entity_type in selected_entities]  
-                      
-                    # Si des entités à anonymiser ont été trouvées  
-                    if results:  
-                        # Configurer l'anonymisation pour remplacer les valeurs  
-                        anonymizers = {entity_type: OperatorConfig("replace", {"new_value": "[MASQUÉ]"})  
-                                      for entity_type in selected_entities}  
-                          
-                        # Anonymiser le texte  
-                        anonymized_text = anonymizer.anonymize(  
-                            text=value,  
-                            analyzer_results=results,  
-                            operators=anonymizers  
-                        ).text  
-                          
-                        # Remplacer la valeur dans le DataFrame de sortie  
-                        output_df.at[index, column] = anonymized_text  
-          
-        # Mettre à jour le statut du job avec PyMongo  
-        main_db.anonymization_jobs.update_one(  
-            {'_id': object_id},  
-            {'$set': {'status': 'completed'}}  
-        )  
-          
-        # Récupérer le job pour obtenir le nom du fichier original  
-        job = main_db.anonymization_jobs.find_one({'_id': object_id})  
-        original_filename = job['original_filename'] if job else 'file.csv'  
-          
-        # Préparer le fichier CSV à télécharger  
+        method = request.POST.get('method', 'replace')  
+  
+        # Lire le contenu CSV depuis MongoDB  
+        csv_data = job["csv_content"]  
+  
+        csv_reader = csv.reader(io.StringIO(csv_data))  
+        header = next(csv_reader)  
         output = io.StringIO()  
-        output_df.to_csv(output, index=False)  
-          
-        # Créer la réponse HTTP avec le fichier CSV  
-        response = HttpResponse(output.getvalue(), content_type='text/csv')  
-        response['Content-Disposition'] = f'attachment; filename="anonymized_{original_filename}"'  
-          
-        # Nettoyer les données de MongoDB  
-        collection.delete_one({'job_id': str(object_id)})  
-          
+        csv_writer = csv.writer(output)  
+        csv_writer.writerow(header)  
+  
+        entity_counts = {}  
+  
+        for row in csv_reader:  
+            new_row = []  
+            for i, cell in enumerate(row):  
+                cell_entities = custom_analyzer.analyze_text(cell)  
+                filtered = [e for e in cell_entities if e.entity_type in selected_entities]  
+                if filtered:  
+                    entity_counts.setdefault(header[i], 0)  
+                    entity_counts[header[i]] += len(filtered)  
+                    anonymized_result = anonymizer.anonymize(  
+                        text=cell,  
+                        analyzer_results=filtered,  
+                        operators={e.entity_type: OperatorConfig("replace", {"new_value": "[MASQUÉ]"}) for e in filtered}  
+                    )  
+                    new_row.append(anonymized_result.text)  
+                else:  
+                    new_row.append(cell)  
+            csv_writer.writerow(new_row)  
+  
+        anonymized_data = output.getvalue()  
+  
+        # Stocker le résultat anonymisé dans MongoDB  
+        jobs_collection.update_one(  
+            {"_id": ObjectId(job_id)},  
+            {  
+                "$set": {  
+                    "status": "anonymized",  
+                    "anonymized_content": anonymized_data,  
+                    "entity_counts": entity_counts,  
+                    "method": method  
+                }  
+            }  
+        )  
+  
+        # Retourner le fichier anonymisé directement  
+        response = HttpResponse(anonymized_data, content_type='text/csv')  
+        response['Content-Disposition'] = f'attachment; filename="anonymized_{job["filename"]}"'  
         return response
+    
+
+class StatisticsView(View):  
+    def get(self, request):  
+        if not request.session.get("user_email"):  
+            return redirect('authapp:login_form')  
+          
+        user_email = request.session.get("user_email")  
+          
+
+        from db_connections import db
+        # Récupérer tous les jobs complétés de l'utilisateur  
+        completed_jobs = list(db.anonymization_jobs.find({  
+            'user_email': user_email,  
+            'status': 'completed'  
+        }))  
+          
+        # Analyser les statistiques  
+        entity_stats = {}  
+        risk_levels = {'critique': 0, 'élevé': 0, 'moyen': 0, 'faible': 0}  
+        total_files = len(completed_jobs)  
+          
+        # Exemple de données pour tester  
+        entity_stats = {  
+            'PERSON': 25,  
+            'EMAIL_ADDRESS': 15,  
+            'PHONE_NUMBER': 10,  
+            'DATE_TIME': 8  
+        }  
+        risk_levels = {'critique': 30, 'élevé': 25, 'moyen': 35, 'faible': 10}  
+          
+        context = {  
+            'entity_stats': entity_stats,  
+            'risk_levels': risk_levels,  
+            'total_files': total_files,  
+            'completed_jobs': completed_jobs  
+        }  
+          
+        return render(request, 'csv_anonymizer/statistics.html', context)

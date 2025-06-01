@@ -24,6 +24,7 @@ input {
     margin: 10px 0;
     border: 1px solid #ccc;
     border-radius: 6px;
+    box-sizing: border-box;
 }
 
 button {
@@ -35,6 +36,7 @@ button {
     border-radius: 6px;
     font-weight: bold;
     cursor: pointer;
+    box-sizing: border-box;
 }
 
 button:hover {

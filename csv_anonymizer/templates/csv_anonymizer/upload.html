@@ -8,7 +8,7 @@
     <title>Détection de Données Sensibles</title>
     <link rel="stylesheet" href="{% static 'css/dist/styles.css' %}" />
   </head>
-  <body>
+  <body style="background-color: #f4f6f9">
     <!-- Navigation responsive -->
     {% include 'csv_anonymizer/navigationmenuBar.html' %}
 
@@ -27,7 +27,10 @@
           Détection des données sensibles
         </h1>
 
-        <div class="files-section">
+        <div
+          class="files-section border-2 border-solid"
+          style="margin-left: 2rem; margin-right: 2rem"
+        >
           <h3
             style="
               font-weight: 900;
@@ -86,6 +89,12 @@
                     <p class="text-xs text-gray-500 dark:text-gray-400">
                       Formats : CSV, TXT
                     </p>
+                    <div id="file-name" class="mt-2 text-sm font-medium text-blue-600 bg-blue-50 px-3 py-2 rounded-md border border-blue-200 hidden">  
+                      <svg class="inline w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">  
+                        <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"/>  
+                      </svg>  
+                      <span id="file-name-text"></span>  
+                    </div>
                   </div>
                   <input
                     id="csv_file"
@@ -182,20 +191,22 @@
           }
         });
 
-        function handleFiles(files) {
-          fileNameDisplay.textContent =
-            "Fichier sélectionné : " + files[0].name;
-          fileNameDisplay.style.display = "block";
+        function handleFiles(files) {  
+          const fileNameText = document.getElementById('file-name-text');  
+          const fileNameContainer = document.getElementById('file-name');  
+    
+          fileNameText.textContent = files[0].name;  
+          fileNameContainer.classList.remove('hidden');  
+          fileNameContainer.style.display = "block";  
         }
 
         // Bouton Annuler
-        document
-          .querySelector(".cancel-button")
-          .addEventListener("click", function () {
-            fileInput.value = "";
-            fileNameDisplay.textContent = "";
-            fileNameDisplay.style.display = "none";
-          });
+        document.querySelector(".cancel-button").addEventListener("click", function () {  
+         fileInput.value = "";  
+         const fileNameContainer = document.getElementById('file-name');  
+         fileNameContainer.classList.add('hidden');  
+         fileNameContainer.style.display = "none";  
+        });
       });
     </script>
   </body>

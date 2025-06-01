@@ -1,5 +1,12 @@
 /* Général */
+
+main {  
+    margin-top: 0; /* Assure-vous qu'il n'y a pas de marge supplémentaire */  
+}
+
+
 body {
+    padding-top: 70px ;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     background-color: #f4f6f9;
     margin: 0;

@@ -5,7 +5,6 @@ name = "pypi"
 
 [packages]
 asgiref = "==3.8.1"
-django = "*"
 djangorestframework = "*"
 djangorestframework-simplejwt = "*"
 pyjwt = "==2.9.0"
@@ -13,6 +12,15 @@ sqlparse = "==0.5.3"
 typing-extensions = "==4.13.2"
 pymongo = "*"
 django-tailwind = "*"
+tailwind = "*"
+presidio-analyzer = "*"
+presidio-anonymizer = "*"
+pandas = "*"
+presidio-structured = "*"
+spacy = "*"
+en-core-web-lg = {file = "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"}
+passlib = "*"
+django = "*"
 
 [dev-packages]
 
