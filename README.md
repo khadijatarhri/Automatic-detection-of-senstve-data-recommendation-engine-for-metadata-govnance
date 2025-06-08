@@ -4,14 +4,14 @@ Application Django pour la détection et l'anonymisation automatique de données
 
 ---
 
-## 🛠️ Prérequis
+##  Prérequis
 
 - Docker et Docker Compose  
 - Git  
 
 ---
 
-## 🚀 Installation et Démarrage
+##  Installation et Démarrage
 
 ### 1. Cloner le repository
 
@@ -40,7 +40,7 @@ Email : admin@example.com
 
 Mot de passe : admin123
 
-## 🏗️ Architecture
+##  Architecture
 
 L'application utilise :
 
@@ -54,7 +54,7 @@ spaCy : Modèle de traitement du langage naturel (en_core_web_sm)
 
 Tailwind CSS : Framework CSS pour l’interface
 
-## ✨ Fonctionnalités
+##  Fonctionnalités
 Authentification : Système de login/register avec sessions views.py:36-63
 
 Upload CSV : Interface pour télécharger des fichiers CSV
@@ -65,7 +65,7 @@ Anonymisation : Remplacement des données sensibles
 
 Interface responsive : Design moderne avec thème sombre/clair
 
-## 📁 Structure du Projet
+##  Structure du Projet
 ```bash
 ├── authapp/              # Système d'authentification  
 ├── csv_anonymizer/       # Logique d'anonymisation  
@@ -78,11 +78,11 @@ Interface responsive : Design moderne avec thème sombre/clair
 ├── requirements.txt      # Dépendances Python  
 └── create_admin.py       # Script création admin
 ```
-## ⛔ Arrêter l'application
+##  Arrêter l'application
 ```bash
 sudo docker-compose down
 ```
-## 🔧 Développement
+##  Développement
 Pour le développement local, vous pouvez modifier les fichiers et relancer :
 
 ```bash
@@ -90,7 +90,7 @@ sudo docker-compose up --build
 ```
 
 
-## 📸 Aperçu de l'application
+##  Aperçu de l'application
 
 
 
