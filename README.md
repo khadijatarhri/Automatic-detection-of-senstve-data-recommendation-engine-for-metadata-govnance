@@ -92,8 +92,7 @@ sudo docker-compose up --build
 
 ## 📸 Aperçu de l'application
 
-### Register : Création de compte utilisateur.
-![Page de connexion](assets/register.png)
+
 
 ### Login : Connexion à la plateforme.
 ![Page de connexion](assets/login.png)
@@ -105,7 +104,7 @@ sudo docker-compose up --build
 ![Page de connexion](assets/SelectEntities.png)
 
 ### Administration : Gestion des utilisateurs (ajout, modification, suppression).
-![Page de connexion](assets/AddingUsers.png)
+![Page de connexion](assets/addingUsers.png)
 ![Page de connexion](assets/addkhadija.png)
 
 
