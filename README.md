@@ -92,31 +92,30 @@ sudo docker-compose up --build
 
 ## 📸 Aperçu de l'application
 
-### Page de connexion
-![Page de connexion](assets/login.png)
-
-### Tableau de bord
-![Dashboard](assets/dashboard.png)
-
 ### Register : Création de compte utilisateur.
+![Page de connexion](assets/register.png)
 
 ### Login : Connexion à la plateforme.
+![Page de connexion](assets/login.png)
 
 ### Téléversement : Upload de fichiers CSV ou TXT à analyser.
+![Page de connexion](assets/upload.png)
 
 ### Statistiques : Affichage des entités sensibles détectées sous forme de graphiques.
+![Page de connexion](assets/SelectEntities.png)
 
 ### Administration : Gestion des utilisateurs (ajout, modification, suppression).
+![Page de connexion](assets/AddingUsers.png)
+![Page de connexion](assets/addkhadija.png)
+
 
 ### Statistiques globales : Vue d’ensemble des entités détectées.
+![Page de connexion](assets/Statistics.png)
+![Page de connexion](assets/statistics2.png)
+
 
 ### Interface utilisateur simple : Accès uniquement aux fichiers anonymisés.
-
-
-
-
-
-
+![Page de connexion](assets/usersinterface.png)
 
 
 ## 📄 Licence
