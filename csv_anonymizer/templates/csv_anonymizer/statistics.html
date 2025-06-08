@@ -49,31 +49,7 @@
                         </div>  
                     </div>  
                 </div>  
-                  
-                <div class="bg-white rounded-lg shadow-md p-6 border border-gray-200">  
-                    <div class="flex items-center">  
-                        <div class="p-3 rounded-full bg-yellow-100 text-yellow-600">  
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">  
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>  
-                            </svg>  
-                        </div>  
-                        <div class="ml-4">  
-                            <h3 class="text-lg font-semibold text-gray-700">Risque Critique</h3>  
-                            <p class="text-3xl font-bold text-yellow-600" id="critical-risk">0%</p>  
-                        </div>  
-                    </div>  
-                </div>  
-                  
-                <div class="bg-white rounded-lg shadow-md p-6 border border-gray-200">  
-                    <div class="flex items-center">  
-                        <div class="p-3 rounded-full bg-purple-100 text-purple-600">  
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">  
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>  
-                            </svg>  
-                        </div>  
-                        
-                    </div>  
-                </div>  
+          
             </div>  
               
             <!-- Graphiques -->  
@@ -131,7 +107,6 @@
         // Calcul des statistiques pour les cards  
         const totalEntities = Object.values(entityData).reduce((sum, value) => sum + value, 0);  
         document.getElementById('total-entities').textContent = totalEntities;  
-        document.getElementById('critical-risk').textContent = riskData.critique + '%';  
           
         // Configuration du pie chart  
         const entityCtx = document.getElementById('entityPieChart').getContext('2d');  

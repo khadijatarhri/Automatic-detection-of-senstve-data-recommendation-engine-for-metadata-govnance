@@ -7,7 +7,7 @@ import os
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend_with_mongodb.settings")
 django.setup()
 
-client = MongoClient("mongodb://localhost:27017/")
+client = MongoClient("mongodb://mongodb:27017/")
 db = client["csv_anonymizer_db"]
 users = db["users"]
 

@@ -1,38 +1,125 @@
-{% load static %}  
-<!DOCTYPE html>  
-<html lang="fr">  
-<head>  
-    <meta charset="UTF-8">  
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">  
-    <title>Tableau de Bord</title>  
-    <link rel="stylesheet" href="{% static 'css/dist/styles.css' %}">  
-</head>  
-<body class="bg-gray-50">  
-    <nav class="bg-white shadow">  
-        <div class="max-w-7xl mx-auto px-4">  
-            <div class="flex justify-between h-16">  
-                <div class="flex items-center">  
-                    <h1 class="text-xl font-semibold">Tableau de Bord</h1>  
-                </div>  
-                <div class="flex items-center">  
-                    <a href="/logout/" class="text-gray-500 hover:text-gray-700">Déconnexion</a>  
-                </div>  
-            </div>  
-        </div>  
-    </nav>  
-      
-    <main class="container mx-auto px-4 py-8">  
-        <div class="max-w-7xl mx-auto">  
-            <h2 class="text-2xl font-bold text-gray-900 mb-6">Mes Données</h2>  
-              
-            <div class="bg-white rounded-lg shadow overflow-hidden">  
-                <table class="min-w-full divide-y divide-gray-200">  
-                    <thead class="bg-gray-50">  
-                        <tr>  
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Colonne 1</th>  
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Colonne 2</th>  
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Colonne 3</th>  
+{% load static %}    
+<!DOCTYPE html>    
+<html lang="fr">    
+<head>    
+    <meta charset="UTF-8">    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">    
+    <title>Fichiers Traités et Sécurisés</title>    
+    <link rel="stylesheet" href="{% static 'css/dist/styles.css' %}">    
+</head>    
+<body class="bg-gray-50">    
+    <nav class="bg-white shadow">    
+        <div class="max-w-7xl mx-auto px-4">    
+            <div class="flex justify-between h-16">    
+                <div class="flex items-center">    
+                    <h1 class="text-xl font-semibold">Fichiers Traités et Sécurisés</h1>    
+                </div>    
+                <div class="flex items-center">    
+                    <a href="/logout/" class="text-gray-500 hover:text-gray-700">Déconnexion</a>    
+                </div>    
+            </div>    
+        </div>    
+    </nav>    
+        
+    <main class="container mx-auto px-4 py-8">    
+        <div class="max-w-7xl mx-auto">    
+            <h2 class="text-2xl font-bold text-gray-900 mb-6">Fichiers Anonymisés Disponibles</h2>    
+                
+            <div class="bg-white rounded-lg shadow overflow-hidden">    
+                <table class="min-w-full divide-y divide-gray-200">    
+                    <thead class="bg-gray-50">    
+                        <tr>    
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">  
+                                <div class="flex items-center">  
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">  
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>  
+                                    </svg>  
+                                    Nom du Fichier  
+                                </div>  
+                            </th>    
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">  
+                                <div class="flex items-center">  
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">  
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>  
+                                    </svg>  
+                                    Date d'Anonymisation  
+                                </div>  
+                            </th>    
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">  
+                                <div class="flex items-center">  
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">  
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>  
+                                    </svg>  
+                                    Statut  
+                                </div>  
+                            </th>  
+                            <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>    
+                        </tr>    
+                    </thead>    
+                    <tbody class="bg-white divide-y divide-gray-200">    
+                        {% for file in anonymized_files %}  
+                        <tr class="hover:bg-gray-50 transition-colors duration-200">  
+                            <td class="px-6 py-4 whitespace-nowrap">  
+                                <div class="flex items-center">  
+                                    <div class="flex-shrink-0 h-10 w-10">  
+                                        <div class="h-10 w-10 rounded-full bg-gradient-to-r from-green-400 to-green-600 flex items-center justify-center text-white font-semibold">  
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">  
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>  
+                                            </svg>  
+                                        </div>  
+                                    </div>  
+                                    <div class="ml-4">  
+                                        <div class="text-sm font-medium text-gray-900">  
+                                            anonymized_{{ file.original_filename }}  
+                                        </div>  
+                                        <div class="text-sm text-gray-500">  
+                                            Fichier CSV anonymisé  
+                                        </div>  
+                                    </div>  
+                                </div>  
+                            </td>  
+                            <td class="px-6 py-4 whitespace-nowrap">  
+                                <div class="text-sm text-gray-900">  
+                                    {{ file.upload_date|date:"d/m/Y H:i" }}  
+                                </div>  
+                            </td>  
+                            <td class="px-6 py-4 whitespace-nowrap">  
+                                <span class="inline-flex px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 border border-green-200">  
+                                    <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">  
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>  
+                                    </svg>  
+                                    Anonymisé  
+                                </span>  
+                            </td>  
+                            <td class="px-6 py-4 whitespace-nowrap text-center">  
+                                <div class="flex justify-center space-x-2">  
+                                    <a href="{% url 'authapp:download_file' file.id %}"   
+                                       class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out">  
+                                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">  
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>  
+                                        </svg>  
+                                        Télécharger  
+                                    </a>  
+                                </div>  
+                            </td>  
                         </tr>  
-                    </thead>  
-                    <tbody class="bg-white divide-y divide-gray-200">  
-                        
+                        {% empty %}  
+                        <tr>  
+                            <td colspan="4" class="px-6 py-12 text-center">  
+                                <div class="text-gray-500">  
+                                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">  
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>  
+                                    </svg>  
+                                    <p class="mt-2 text-sm">Aucun fichier anonymisé disponible</p>  
+                                    <p class="text-xs text-gray-400">Les fichiers apparaîtront ici une fois que l'administrateur aura traité des données</p>  
+                                </div>  
+                            </td>  
+                        </tr>  
+                        {% endfor %}  
+                    </tbody>    
+                </table>    
+            </div>    
+        </div>    
+    </main>    
+</body>    
+</html>

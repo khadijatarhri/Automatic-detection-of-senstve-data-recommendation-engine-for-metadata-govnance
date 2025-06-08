@@ -53,7 +53,7 @@ TAILWIND_APP_NAME = 'theme'
 
 
 MANGO_JWT_SETTINGS = {
-    "db_host": "localhost",
+    "db_host": "mongodb",
     "db_port": "27017",
     "db_name": "PFADB",
 }
@@ -108,7 +108,7 @@ REST_FRAMEWORK = {
 
 
 MONGODB_SETTINGS = {  
-    'host': 'mongodb://localhost:27017/',  
+    'host': 'mongodb://mongodb:27017/',  
     'db': 'csv_anonymizer_db',  
 }
 
@@ -120,17 +120,6 @@ DATABASES = {
         'NAME': BASE_DIR / "db.sqlite3",  
     }  
 }
-#DATABASES = {
-#    'default': {
-#        'ENGINE': 'djongo',
-#        'NAME': 'PFADB',
-#        'ENFORCE_SCHEMA': False,
-#        'CLIENT': {
- #           'host': 'mongodb://localhost:27017',
-  #      }
-   # 
-    #}
-#}
 
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = 'home'

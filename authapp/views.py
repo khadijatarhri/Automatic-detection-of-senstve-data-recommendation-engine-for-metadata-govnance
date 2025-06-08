@@ -1,4 +1,6 @@
 from django.shortcuts import render
+from django.http import HttpResponse, JsonResponse    
+import pandas as pd
 from rest_framework.views import APIView 
 from rest_framework.response import Response
 from rest_framework import status
@@ -11,9 +13,12 @@ from db_connections import db
 import os
 from django.views import View 
 from bson import ObjectId  
-
+from pymongo import MongoClient    
+import io
 
 users = db["users"]
+client = MongoClient('mongodb://mongodb:27017/')    
+csv_db = client['csv_anonymizer_db']
 
 # --- Register Logic ---
 def register_form(request):
@@ -71,19 +76,29 @@ def login_form(request):
 
 
 # --- Home Page ---
-def home_view(request):  
-    if not request.session.get("user_email"):  
-        return redirect("/login/")  
-      
-    user_email = request.session.get("user_email")  
-    current_user = users.find_one({'email': user_email})  
-      
-    # Si c'est un admin, rediriger vers l'interface complète  
-    if current_user and current_user.get('role') == 'admin':  
-        return render(request, "authapp/home.html")  
-    else:  
-        # Pour les utilisateurs normaux, afficher seulement le tableau  
-        return render(request, "authapp/user_home.html")
+def home_view(request):    
+    if not request.session.get("user_email"):    
+        return redirect("/login/")    
+        
+    user_email = request.session.get("user_email")    
+    current_user = users.find_one({'email': user_email})    
+        
+    # Si c'est un admin, rediriger vers l'interface complète    
+    if current_user and current_user.get('role') == 'admin':    
+        return render(request, "authapp/home.html")    
+    else:    
+        # Pour les utilisateurs normaux, récupérer les fichiers anonymisés  
+        completed_jobs = list(db.anonymization_jobs.find({  
+            'status': 'completed'  
+        }).sort('upload_date', -1))  
+          
+        # Convertir les ObjectId en strings pour le template  
+        for job in completed_jobs:  
+            job['id'] = str(job['_id'])  # Créer un nouveau champ 'id'  
+          
+        return render(request, "authapp/user_home.html", {  
+            'anonymized_files': completed_jobs  
+        })
 
 # --- Upload API ---
 class UploadFileView(APIView):  
@@ -180,3 +195,32 @@ class AdminView(View):
 def logout_view(request):  
     request.session.flush()  # Supprime toutes les données de session  
     return redirect('authapp:login_form')
+
+
+def download_file(request, job_id):  
+    if not request.session.get("user_email"):  
+        return redirect('login_form')  
+      
+    try:  
+        # Récupérer le job  
+        job = db.anonymization_jobs.find_one({'_id': ObjectId(job_id)})  
+        if not job:  
+            return HttpResponse("Fichier non trouvé", status=404)  
+          
+        # Récupérer les données ANONYMISÉES stockées  
+        anonymized_data = csv_db['anonymized_files'].find_one({'job_id': job_id})  
+        if not anonymized_data:  
+            return HttpResponse("Données anonymisées non trouvées", status=404)  
+          
+        # Créer le CSV avec les données ANONYMISÉES  
+        df = pd.DataFrame(anonymized_data['anonymized_data'])  
+        output = io.StringIO()  
+        df.to_csv(output, index=False)  
+          
+        response = HttpResponse(output.getvalue(), content_type='text/csv')  
+        response['Content-Disposition'] = f'attachment; filename="anonymized_{job["original_filename"]}"'  
+          
+        return response  
+          
+    except Exception as e:  
+        return HttpResponse(f"Erreur: {str(e)}", status=500)

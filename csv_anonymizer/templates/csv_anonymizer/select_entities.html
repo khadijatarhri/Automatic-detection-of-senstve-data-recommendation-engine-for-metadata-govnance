@@ -1,110 +1,125 @@
-{% load static %}
-
-<!DOCTYPE html>
-<html lang="fr">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title></title>
-    <link rel="stylesheet" href="{% static 'css/dist/styles.css' %}" />
-    <link rel="stylesheet" href="{% static 'csv_anonymizer/anonymize.css' %}" />
-  </head>
-  <body>
-    <!-- Navigation responsive -->
-    {% include 'csv_anonymizer/navigationmenuBar.html' %}
-    <style>
-      nav {
-        position: relative;
-        top: 0;
-        left: 0;
-        right: 0;
-        width: 100%;
-        margin-bottom: 20px;
-      }
-      body {
-        padding-top: 0;
-      }
-    </style>
-    <main>
-      <div>
-        <div class="anonymize-header">
-          <h1>Configuration de l'Anonymisation</h1>
-          <p class="subtitle">
-            Sélectionnez les types de données sensibles à masquer
-          </p>
-        </div>
-
-        <form
-          method="post"
-          action="{% url 'csv_anonymizer:process' job_id %}"
-          class="anonymize-form"
-        >
-          {% csrf_token %}
-
-          <!-- Section Entités Détectées -->
-          <div class="selection-card">
-            <div class="card-header">
-              <i class="fas fa-user-shield icon"></i>
-              <h2>Types de Données Sensibles Détectées</h2>
-            </div>
-            <div class="card-body">
-              <p class="card-description">
-                Sélectionnez les types d'informations personnelles à anonymiser
-                dans votre fichier :
-              </p>
-
-              <div class="checkboxes-grid">
-                {% for entity in detected_entities %}
-                <div class="checkbox-item">
-                  <input
-                    type="checkbox"
-                    name="entities"
-                    value="{{ entity }}"
-                    id="entity_{{ forloop.counter }}"
-                    class="styled-checkbox"
-                  />
-                  <label for="entity_{{ forloop.counter }}">
-                    <span class="checkbox-label">{{ entity }}</span>
-                    <span class="checkmark"></span>
-                  </label>
-                </div>
-                {% endfor %}
-              </div>
-            </div>
-          </div>
-
-          <!-- Section d'information -->
-          <div class="info-card">
-            <div class="card-header">
-              <i class="fas fa-info-circle icon"></i>
-              <h2>Comment fonctionne l'anonymisation</h2>
-            </div>
-            <div class="card-body">
-              <p>
-                Le système va automatiquement détecter et masquer les données
-                sensibles dans toutes les colonnes de votre fichier selon les
-                types que vous avez sélectionnés ci-dessus.
-              </p>
-              <p>
-                Par exemple, si vous sélectionnez "EMAIL", toutes les adresses
-                email seront remplacées par "[MASQUÉ]" dans l'ensemble du
-                fichier.
-              </p>
-            </div>
-          </div>
-
-          <div class="form-actions">
-            <button
-              type="submit"
-              class="text-white bg-blue-700 hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-300 font-medium rounded-full text-sm px-5 py-2.5 text-center me-2 mb-2 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
-            >
-              <i class="fas fa-mask"></i>
-              Anonymiser et Télécharger
-            </button>
-          </div>
-        </form>
-      </div>
-    </main>
-    <script src="https://cdn.tailwindcss.com"></script>
-  </body>
+{% load static %}  
+  
+<!DOCTYPE html>  
+<html lang="fr">  
+  <head>  
+    <meta charset="UTF-8" />  
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />  
+    <title></title>  
+    <link rel="stylesheet" href="{% static 'css/dist/styles.css' %}" />  
+    <link rel="stylesheet" href="{% static 'csv_anonymizer/anonymize.css' %}" />  
+  </head>  
+  <body>  
+    <!-- Navigation responsive -->  
+    {% include 'csv_anonymizer/navigationmenuBar.html' %}  
+    <style>  
+      nav {  
+        position: relative;  
+        top: 0;  
+        left: 0;  
+        right: 0;  
+        width: 100%;  
+        margin-bottom: 20px;  
+      }  
+      body {  
+        padding-top: 0;  
+      }  
+    </style>  
+    <main>  
+      <div>  
+        <div class="anonymize-header">  
+          <h1>Configuration de l'Anonymisation</h1>  
+          <p class="subtitle">  
+            Sélectionnez les types de données sensibles à masquer  
+          </p>  
+        </div>  
+  
+        {% if job_id %}  
+        <form  
+          method="post"  
+          action="{% url 'csv_anonymizer:process' job_id %}"  
+          class="anonymize-form"  
+        >  
+          {% csrf_token %}  
+  
+          <!-- Section Entités Détectées -->  
+          <div class="selection-card">  
+            <div class="card-header">  
+              <i class="fas fa-user-shield icon"></i>  
+              <h2>Types de Données Sensibles Détectées</h2>  
+            </div>  
+            <div class="card-body">  
+              <p class="card-description">  
+                Sélectionnez les types d'informations personnelles à anonymiser  
+                dans votre fichier :  
+              </p>  
+  
+              <div class="checkboxes-grid">  
+                {% for entity in detected_entities %}  
+                <div class="checkbox-item">  
+                  <input  
+                    type="checkbox"  
+                    name="entities"  
+                    value="{{ entity }}"  
+                    id="entity_{{ forloop.counter }}"  
+                    class="styled-checkbox"  
+                  />  
+                  <label for="entity_{{ forloop.counter }}">  
+                    <span class="checkbox-label">{{ entity }}</span>  
+                    <span class="checkmark"></span>  
+                  </label>  
+                </div>  
+                {% endfor %}  
+              </div>  
+            </div>  
+          </div>  
+  
+          <!-- Section d'information -->  
+          <div class="info-card">  
+            <div class="card-header">  
+              <i class="fas fa-info-circle icon"></i>  
+              <h2>Comment fonctionne l'anonymisation</h2>  
+            </div>  
+            <div class="card-body">  
+              <p>  
+                Le système va automatiquement détecter et masquer les données  
+                sensibles dans toutes les colonnes de votre fichier selon les  
+                types que vous avez sélectionnés ci-dessus.  
+              </p>  
+              <p>  
+                Par exemple, si vous sélectionnez "EMAIL", toutes les adresses  
+                email seront remplacées par "[MASQUÉ]" dans l'ensemble du  
+                fichier.  
+              </p>  
+            </div>  
+          </div>  
+  
+          <div class="form-actions">  
+            <button  
+              type="submit"  
+              class="text-white bg-blue-700 hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-300 font-medium rounded-full text-sm px-5 py-2.5 text-center me-2 mb-2 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"  
+            >  
+              <i class="fas fa-mask"></i>  
+              Anonymiser et Télécharger  
+            </button>  
+          </div>  
+        </form>  
+        {% else %}  
+        <div class="error-card">  
+          <div class="card-header">  
+            <i class="fas fa-exclamation-triangle icon"></i>  
+            <h2>Erreur</h2>  
+          </div>  
+          <div class="card-body">  
+            <p>ID de job manquant. Veuillez retourner à la page d'upload et réessayer.</p>  
+            <a href="{% url 'csv_anonymizer:upload' %}" class="text-blue-600 hover:text-blue-800">  
+              Retour à l'upload  
+            </a>  
+          </div>  
+        </div>  
+        {% endif %}  
+      </div>  
+    </main>  
+    <script src="https://cdn.tailwindcss.com"></script>  
+  </body>  
 </html>
