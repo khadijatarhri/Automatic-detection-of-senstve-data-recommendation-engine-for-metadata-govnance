@@ -84,9 +84,40 @@ sudo docker-compose down
 ```
 ## 🔧 Développement
 Pour le développement local, vous pouvez modifier les fichiers et relancer :
+
 ```bash
 sudo docker-compose up --build
 ```
+
+
+## 📸 Aperçu de l'application
+
+### Page de connexion
+![Page de connexion](assets/login.png)
+
+### Tableau de bord
+![Dashboard](assets/dashboard.png)
+
+### Register : Création de compte utilisateur.
+
+### Login : Connexion à la plateforme.
+
+### Téléversement : Upload de fichiers CSV ou TXT à analyser.
+
+### Statistiques : Affichage des entités sensibles détectées sous forme de graphiques.
+
+### Administration : Gestion des utilisateurs (ajout, modification, suppression).
+
+### Statistiques globales : Vue d’ensemble des entités détectées.
+
+### Interface utilisateur simple : Accès uniquement aux fichiers anonymisés.
+
+
+
+
+
+
+
 
 ## 📄 Licence
 Ce projet est sous licence MIT.
