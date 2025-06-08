@@ -31,7 +31,7 @@ sudo docker exec -it sensitive-data-detection-web-1 python create_admin.py
 ```
 ### 4. Accéder à l'application
 Ouvrez votre navigateur et allez à :
-http://127.0.0.1:8000/
+http://127.0.0.1:8000/login
 
 ### 5. Se connecter
 Utilisez les identifiants par défaut :
@@ -40,7 +40,7 @@ Email : admin@example.com
 
 Mot de passe : admin123
 
-🏗️ Architecture
+## 🏗️ Architecture
 
 L'application utilise :
 
