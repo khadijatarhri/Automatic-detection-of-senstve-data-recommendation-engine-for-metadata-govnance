@@ -44,7 +44,7 @@ Mot de passe : admin123
 
 L'application utilise :
 
-Django : Framework web backend settings.py:1-16
+Django : Framework web backend 
 
 MongoDB : Base de données pour les utilisateurs et données CSV
 
@@ -55,7 +55,7 @@ spaCy : Modèle de traitement du langage naturel (en_core_web_sm)
 Tailwind CSS : Framework CSS pour l’interface
 
 ##  Fonctionnalités
-Authentification : Système de login/register avec sessions views.py:36-63
+Authentification : Système de login/register avec sessions 
 
 Upload CSV : Interface pour télécharger des fichiers CSV
 
