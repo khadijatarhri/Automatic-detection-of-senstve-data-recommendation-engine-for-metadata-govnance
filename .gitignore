@@ -1,1 +1,28 @@
-venv_django/
+# Environnements virtuels Python  
+venv_django/  
+venv/  
+env/  
+.env  
+  
+# Fichiers Python compilés  
+__pycache__/  
+*.pyc  
+*.pyo  
+*.pyd  
+  
+# Base de données  
+*.db  
+*.sqlite3  
+  
+# Fichiers de logs  
+*.log  
+  
+# Fichiers temporaires  
+*.tmp  
+*.temp  
+  
+
+  
+# Fichiers de build  
+dist/  
+build/
