@@ -26,3 +26,6 @@ __pycache__/
 # Fichiers de build  
 dist/  
 build/
+
+.env  
+*.env

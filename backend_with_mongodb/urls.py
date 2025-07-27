@@ -9,5 +9,6 @@ urlpatterns = [
     path('csv-anonymizer/', include('csv_anonymizer.urls')),  
     path('authapp/', include('authapp.urls')),  
     path("admin/", admin.site.urls),
+    path('recommendations/', include('recommendation_engine.urls')),  
     path("", include("authapp.urls")),
 ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

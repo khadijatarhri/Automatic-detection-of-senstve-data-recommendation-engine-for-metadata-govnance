@@ -16,6 +16,10 @@ services:
       - mongodb  
     environment:  
       - MONGODB_HOST=mongodb  
+      - DEEPSEEK_API_KEY=sk-0cb779da2deb4c62bcefa6b9769544cf 
+      - DEBUG=True  
+      - SECRET_KEY="django-insecure-^b9h-e^uo!*k9rs=jf7ar$7@*x#9sf8pn=mi9f4_*z%h9^h%($"  
+
     volumes:  
       - .:/app  
   

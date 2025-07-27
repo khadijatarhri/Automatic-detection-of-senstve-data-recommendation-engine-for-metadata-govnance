@@ -8,14 +8,17 @@ from presidio_anonymizer.entities import OperatorConfig
 import pandas as pd        
 from presidio_structured import StructuredEngine, PandasAnalysisBuilder        
 import csv        
-import io        
+import io    
+import traceback    
 import json        
 from db_connections import db as main_db          
 import datetime          
 from bson import ObjectId        
 from semantic_engine import SemanticAnalyzer, IntelligentAutoTagger    
 from presidio_custom import create_enhanced_analyzer_engine    
-  
+import os
+from recommendation_engine.recommendation_engine import IntelligentRecommendationEngine  
+
 # Configuration centralisée des entités à exclure    
 EXCLUDED_ENTITY_TYPES = {    
     'IN_PAN', 'URL', 'DOMAIN_NAME', 'NRP', 'US_BANK_NUMBER',    
@@ -51,7 +54,6 @@ class UploadCSVView(View):
         if not user_email:        
             return redirect('login_form')        
             
-        user_email = request.session.get("user_email")      
     
         user = users.find_one({'email': user_email})      
       
@@ -108,11 +110,52 @@ class UploadCSVView(View):
                         if entity.entity_type not in EXCLUDED_ENTITY_TYPES:    
                             detected_entities.add(entity.entity_type)        
         
-        return render(request, 'csv_anonymizer/select_entities.html', {        
-            'job_id': str(job_id),        
-            'detected_entities': list(detected_entities),        
-            'headers': headers        
-        })        
+        try:  
+            deepseek_api_key = os.getenv('DEEPSEEK_API_KEY', 'sk-0cb779da2deb4c62bcefa6b9769544cf')  
+            print(f"API Key: {deepseek_api_key}")  # Debug  
+            print(f"Detected entities: {detected_entities}")  # Debug  
+            print(f"Job ID: {job_id}")  # Debug  
+
+
+            recommendation_engine = IntelligentRecommendationEngine(deepseek_api_key)  
+            print("RecommendationEngine créé avec succès") # Debug  
+
+
+            # Créer le profil du dataset  
+            dataset_profile = recommendation_engine.create_dataset_profile_from_presidio(  
+                str(job_id), detected_entities, headers, csv_data  
+            )  
+            print(f"Dataset profile créé: {dataset_profile}")  # Debug  
+
+
+            # Générer les recommandations (asynchrone)  
+            import asyncio 
+
+            print("Début génération des recommandations...")  # Debug   
+            recommendations = asyncio.run(recommendation_engine.generate_recommendations(dataset_profile))  
+            print(f"Recommandations générées: {len(recommendations)} items")  # Debug  
+
+
+            # Stocker l'ID du job pour les recommandations  
+            request.session['current_job_id'] = str(job_id)  
+              
+        except Exception as e:  
+            print(f"Erreur détaillée: {type(e).__name__}: {e}")  # Plus de détails  
+            print(f"Erreur lors de la génération des recommandations: {e}")  
+            traceback.print_exc()  # Stack trace complète  
+            recommendations = []  
+  
+            print(f"Final recommendations count: {len(recommendations)}")  # Debug final  
+            print(f"has_recommendations will be: {len(recommendations) > 0}")  # Debug final  
+    
+
+
+        return render(request, 'csv_anonymizer/select_entities.html', {  
+            'job_id': str(job_id),  
+            'detected_entities': list(detected_entities),  
+            'headers': headers,  
+            'has_recommendations': len(recommendations) > 0  
+        })     
       
       
 class ProcessCSVView(View):        
