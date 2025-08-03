@@ -17,7 +17,7 @@ from bson import ObjectId
 from semantic_engine import SemanticAnalyzer, IntelligentAutoTagger    
 from presidio_custom import create_enhanced_analyzer_engine    
 import os
-from recommendation_engine.recommendation_engine import IntelligentRecommendationEngine  
+from recommendation_engine.MoteurDeRecommandationAvecDeepSeekML import IntelligentRecommendationEngine, DeepSeekClient
 
 # Configuration centralisée des entités à exclure    
 EXCLUDED_ENTITY_TYPES = {    
@@ -111,31 +111,33 @@ class UploadCSVView(View):
                             detected_entities.add(entity.entity_type)        
         
         try:  
-            deepseek_api_key = os.getenv('DEEPSEEK_API_KEY', 'sk-0cb779da2deb4c62bcefa6b9769544cf')  
+            deepseek_api_key = os.getenv('DEEPSEEK_API_KEY', 'sk-8793ca669da3492db76a7111ac6d71c5')  
             print(f"API Key: {deepseek_api_key}")  # Debug  
             print(f"Detected entities: {detected_entities}")  # Debug  
             print(f"Job ID: {job_id}")  # Debug  
 
-
-            recommendation_engine = IntelligentRecommendationEngine(deepseek_api_key)  
-            print("RecommendationEngine créé avec succès") # Debug  
-
-
-            # Créer le profil du dataset  
-            dataset_profile = recommendation_engine.create_dataset_profile_from_presidio(  
-                str(job_id), detected_entities, headers, csv_data  
-            )  
-            print(f"Dataset profile créé: {dataset_profile}")  # Debug  
-
-
-            # Générer les recommandations (asynchrone)  
-            import asyncio 
-
-            print("Début génération des recommandations...")  # Debug   
-            recommendations = asyncio.run(recommendation_engine.generate_recommendations(dataset_profile))  
-            print(f"Recommandations générées: {len(recommendations)} items")  # Debug  
-
-
+            deepseek_client = DeepSeekClient(deepseek_api_key)  
+            import asyncio
+            async def generate_recommendations_async():  
+                  async with DeepSeekClient(deepseek_api_key) as deepseek_client:    
+                    recommendation_engine = IntelligentRecommendationEngine(deepseek_client)    
+                    print("RecommendationEngine créé avec succès")  # Debug    
+              
+                    # Créer le profil du dataset    
+                    dataset_profile = recommendation_engine.create_dataset_profile_from_presidio(str(job_id), detected_entities, headers, csv_data )    
+                    print(f"Dataset profile créé: {dataset_profile}")  # Debug    
+              
+                    # Générer les recommandations  
+                    print("Début génération des recommandations...")  # Debug     
+                    comprehensive_recommendations = await recommendation_engine.generate_comprehensive_recommendations(dataset_profile)    
+                    return comprehensive_recommendations  
+  
+          # Exécuter la fonction asynchrone  
+            comprehensive_recommendations = asyncio.run(generate_recommendations_async())  
+            recommendations = comprehensive_recommendations.recommendations    
+            overall_score = comprehensive_recommendations.overall_score    
+            improvement_areas = comprehensive_recommendations.improvement_areas  
+  
             # Stocker l'ID du job pour les recommandations  
             request.session['current_job_id'] = str(job_id)  
               
@@ -364,7 +366,6 @@ class StatisticsView(View):
             else:      
                 moyen_count += count      
               
-        # Calculer les pourcentages      
         # Calculer les pourcentages      
         critique_percent = round((critique_count / total_entities) * 100, 1)      
         eleve_percent = round((eleve_count / total_entities) * 100, 1)      

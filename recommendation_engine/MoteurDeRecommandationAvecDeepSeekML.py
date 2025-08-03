@@ -945,31 +945,13 @@ class IntelligentRecommendationEngine:
             gaps.append("Gestion des consentements manquante")  
           
         return gaps  
-      
+    
     async def _save_recommendations(self, dataset_id: str, recommendations: List[RecommendationItem]):  
-        """Sauvegarde les recommandations dans la base de données"""  
-        conn = sqlite3.connect(self.database_path)  
-        cursor = conn.cursor()  
-          
-        for rec in recommendations:  
-            cursor.execute('''  
-                INSERT OR REPLACE INTO recommendations   
-                (id, dataset_id, type, title, description, priority, confidence, metadata, created_at)  
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)  
-            ''', (  
-                rec.id,  
-                dataset_id,  
-                rec.category,  
-                rec.title,  
-                rec.description,  
-                rec.priority,  
-                rec.confidence,  
-                json.dumps(rec.metadata),  
-                rec.created_at  
-            ))  
-          
-        conn.commit()  
-        conn.close()  
+      from .models import RecommendationStorage  
+      storage = RecommendationStorage()  
+      storage.save_recommendations(dataset_id, recommendations)
+      
+    
   
 # =============================================================================  
 # EXEMPLE D'UTILISATION AVEC ANALYSE INTRA-FICHIER  
