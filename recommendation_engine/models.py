@@ -7,7 +7,8 @@ import json
 from typing import Dict, List, Optional, Any  
 from dataclasses import dataclass, asdict  
 from enum import Enum  
-  
+import numpy as np  
+
 # Connexion MongoDB  
 client = MongoClient('mongodb://mongodb:27017/')
 recommendations_db = client['recommendations_db']  
@@ -41,8 +42,29 @@ class RecommendationStorage:
         for rec in recommendations:  
             doc = asdict(rec)  
             doc['dataset_id'] = dataset_id  
-            doc['created_at'] = rec.created_at.isoformat()  
+            doc['created_at'] = rec.created_at.isoformat() 
+
+            if 'metadata' in doc and doc['metadata']:  
+                 doc['metadata'] = self._convert_numpy_types(doc['metadata'])   
+
             self.collection.insert_one(doc)  
+      
+
+    def _convert_numpy_types(self, obj):  
+     if isinstance(obj, dict):  
+        return {k: self._convert_numpy_types(v) for k, v in obj.items()}  
+     elif isinstance(obj, list):  
+        return [self._convert_numpy_types(item) for item in obj]  
+     elif isinstance(obj, np.integer):  
+        return int(obj)  
+     elif isinstance(obj, np.floating):  
+        return float(obj)  
+     elif isinstance(obj, np.ndarray):  
+        return obj.tolist()  
+     else:  
+        return obj
+
+
       
     def get_recommendations(self, dataset_id: str) -> List[RecommendationItem]:  
         """Récupère les recommandations depuis MongoDB"""  

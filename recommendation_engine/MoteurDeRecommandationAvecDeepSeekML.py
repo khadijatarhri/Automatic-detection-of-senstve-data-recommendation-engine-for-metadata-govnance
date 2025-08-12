@@ -1,5 +1,5 @@
 # =============================================================================  
-# MOTEUR DE RECOMMANDATION AVEC DEEPSEEK ML + KMEANS + PCA (ANALYSE INTRA-FICHIER)  
+# MOTEUR DE RECOMMANDATION AVEC GEMINI ML + KMEANS + PCA (ANALYSE INTRA-FICHIER)  
 # =============================================================================  
   
 import pandas as pd  
@@ -19,6 +19,8 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler  
 import matplotlib.pyplot as plt  
 import seaborn as sns  
+from sklearn.preprocessing import StandardScaler  
+
 import warnings  
 warnings.filterwarnings('ignore')  
   
@@ -72,80 +74,50 @@ class RecommendationType(Enum):
     ANOMALY_DETECTION = "ANOMALY_DETECTION"  
   
 # =============================================================================  
-# CLIENT DEEPSEEK ML  
+# CLIENT GEMINI ML  
 # =============================================================================  
   
-class DeepSeekClient:  
-    """Client pour interagir avec l'API DeepSeek"""  
+import google.generativeai as genai  
+  
+class GeminiClient:    
+    """Client pour interagir avec l'API Gemini"""    
+        
+    def __init__(self, api_key: str):    
+        self.api_key = api_key    
+        genai.configure(api_key=api_key)    
+        self.model = genai.GenerativeModel('gemini-1.5-flash')    
       
-    def __init__(self, api_key: str, base_url: str = "https://api.deepseek.com/v1"):  
-        self.api_key = api_key  
-        self.base_url = base_url  
-        self.session = None  
-          
     async def __aenter__(self):  
-        self.session = aiohttp.ClientSession()  
+        """Async context manager entry"""  
         return self  
       
     async def __aexit__(self, exc_type, exc_val, exc_tb):  
-        if self.session:  
-            await self.session.close()  
-      
-    async def generate_recommendations(self, prompt: str, max_tokens: int = 1500) -> str:  
-        """Génère des recommandations via l'API DeepSeek"""  
-        headers = {  
-            "Authorization": f"Bearer {self.api_key}",  
-            "Content-Type": "application/json"  
-        }  
-          
-        payload = {  
-            "model": "deepseek-chat",  
-            "messages": [  
-                {  
-                    "role": "system",  
-                    "content": """Tu es un expert en gouvernance des données et en conformité RGPD.   
-                    Tu dois analyser les profils de datasets et générer des recommandations précises   
-                    pour améliorer la qualité, la sécurité et la conformité des données."""  
-                },  
-                {  
-                    "role": "user",  
-                    "content": prompt  
-                }  
-            ],  
-            "max_tokens": max_tokens,  
-            "temperature": 0.7,  
-            "top_p": 0.95  
-        }  
-          
-        async with self.session.post(  
-            f"{self.base_url}/chat/completions",  
-            headers=headers,  
-            json=payload  
-        ) as response:  
-            if response.status == 200:  
-                result = await response.json()  
-                return result['choices'][0]['message']['content']  
-            else:  
-                raise Exception(f"Erreur API DeepSeek: {response.status}")  
-  
+        """Async context manager exit"""  
+        # Clean up any resources here if needed  
+        pass  
+            
+    async def generate_recommendations(self, prompt: str, max_tokens: int = 1500) -> str:    
+        """Génère des recommandations via l'API Gemini"""    
+        try:    
+            response = self.model.generate_content(prompt)    
+            return response.text    
+        except Exception as e:    
+            raise Exception(f"Erreur API Gemini: {e}")
 # =============================================================================  
 # MOTEUR DE RECOMMANDATION INTELLIGENT AVEC ML INTRA-FICHIER  
 # =============================================================================  
   
 class IntelligentRecommendationEngine:  
-    """Moteur de recommandation basé sur DeepSeek ML, KMeans et PCA pour analyse intra-fichier"""  
+    """Moteur de recommandation basé sur Gemini ML, KMeans et PCA pour analyse intra-fichier"""  
       
-    def __init__(self, deepseek_client: DeepSeekClient, database_path: str = "recommendations.db"):  
-        self.deepseek_client = deepseek_client  
-        self.database_path = database_path  
-        self.vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')  
-        self.scaler = StandardScaler()  
-        self.column_kmeans = None  
-        self.row_kmeans = None  
-        self.column_pca = None  
-        self.row_pca = None  
-        self.recommendation_templates = self._load_recommendation_templates()  
-        self._initialize_database()  
+    def __init__(self,gemini_client: GeminiClient, gemini_api_key: str, database_path: str = "recommendations.db"):  
+         self.gemini_client = GeminiClient(gemini_api_key)  
+         self.database_path = database_path 
+         self.gemini_client = gemini_client 
+         self.vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')  
+         self.scaler = StandardScaler()   
+         self.recommendation_templates = self._load_recommendation_templates()  
+         self._initialize_database() 
           
     def _initialize_database(self):  
         """Initialise la base de données pour stocker les recommandations"""  
@@ -633,14 +605,14 @@ class IntelligentRecommendationEngine:
         quality_recs = await self._generate_quality_recommendations(dataset_profile)  
         recommendations.extend(quality_recs)  
           
-        security_recs = await self._generate_security_recommendations(dataset_profile)  
-        recommendations.extend(security_recs)  
+        #security_recs = await self._generate_security_recommendations(dataset_profile)  
+        #recommendations.extend(security_recs)  
           
-        compliance_recs = await self._generate_compliance_recommendations(dataset_profile)  
-        recommendations.extend(compliance_recs)  
+        #compliance_recs = await self._generate_compliance_recommendations(dataset_profile)  
+        #recommendations.extend(compliance_recs)  
           
-        metadata_recs = await self._generate_metadata_recommendations(dataset_profile)  
-        recommendations.extend(metadata_recs)  
+        #metadata_recs = await self._generate_metadata_recommendations(dataset_profile)  
+        #recommendations.extend(metadata_recs)  
           
         # 6. Calcul du score global et identification des domaines d'amélioration  
         overall_score = self._calculate_overall_score(dataset_profile, recommendations)  
@@ -872,7 +844,7 @@ class IntelligentRecommendationEngine:
             quality_score=dataset_profile.get('quality_score', 0.0)  
         )  
           
-        response = await self.deepseek_client.generate_recommendations(prompt)  
+        response = await self.gemini_client.generate_recommendations(prompt)  
           
         # Parser la réponse JSON  
         recommendations = []  
@@ -953,85 +925,3 @@ class IntelligentRecommendationEngine:
       
     
   
-# =============================================================================  
-# EXEMPLE D'UTILISATION AVEC ANALYSE INTRA-FICHIER  
-# =============================================================================  
-  
-async def example_usage_single_file():  
-    """Exemple d'utilisation du moteur de recommandation pour un seul fichier"""  
-      
-    # Configuration DeepSeek  
-    DEEPSEEK_API_KEY = "votre_clé_api_deepseek"  
-      
-    # Profil d'exemple d'un dataset avec données CSV  
-    sample_dataset_profile = {  
-        'dataset_id': 'clients_2024',  
-        'name': 'Base clients 2024',  
-        'entity_distribution': {  
-            'PERSON': 1250,  
-            'EMAIL_ADDRESS': 1200,  
-            'PHONE_NUMBER': 1180,  
-            'ID_MAROC': 1250,  
-            'LOCATION': 890  
-        },  
-        'sensitivity_distribution': {  
-            'PERSONAL_DATA': 2450,  
-            'CONFIDENTIAL': 1200,  
-            'INTERNAL': 500  
-        },  
-        'quality_score': 6.5,  
-        'rgpd_compliance_score': 7.2,  
-        'semantic_tags': ['CLIENT_DATA', 'PII', 'CONTACT'],  
-        'has_personal_data': True,  
-        'has_anonymization': False,  
-        'has_consent_management': True,  
-        'compliance_gaps': ['Documentation insuffisante', 'Anonymisation manquante'],  
-        'headers': ['nom', 'email', 'telephone', 'cin', 'adresse'],  
-        'csv_data': [  
-            {'nom': 'Ahmed Ben Ali', 'email': 'ahmed@email.com', 'telephone': '0612345678', 'cin': 'AB123456', 'adresse': 'Casablanca'},  
-            {'nom': 'Fatima Zahra', 'email': 'fatima@email.com', 'telephone': '0687654321', 'cin': 'FZ789012', 'adresse': 'Rabat'}  
-        ]  
-    }  
-      
-    # Créer le moteur de recommandation  
-    async with DeepSeekClient(DEEPSEEK_API_KEY) as client:  
-        engine = IntelligentRecommendationEngine(client)  
-          
-        # Générer les recommandations avec analyse ML intra-fichier  
-        print("🔍 Génération des recommandations avec analyse ML...")  
-        recommendations = await engine.generate_comprehensive_recommendations(sample_dataset_profile)  
-          
-        # Afficher les résultats  
-        print(f"\n📊 Recommandations pour {sample_dataset_profile['name']}")  
-        print(f"Score global: {recommendations.overall_score:.1f}/10")  
-        print(f"Domaines d'amélioration: {', '.join(recommendations.improvement_areas)}")  
-        print(f"Lacunes de conformité: {', '.join(recommendations.compliance_gaps)}")  
-          
-        # Afficher l'analyse des colonnes  
-        if recommendations.column_clusters:  
-            print(f"\n🔍 Analyse des colonnes:")  
-            column_analysis = recommendations.column_clusters  
-            print(f"Colonnes analysées: {', '.join(column_analysis.get('column_names', []))}")  
-            print(f"Clusters identifiés: {len(set(column_analysis.get('clusters', [])))}")  
-          
-        # Afficher l'analyse des lignes  
-        if recommendations.row_clusters:  
-            print(f"\n📋 Analyse des lignes:")  
-            row_analysis = recommendations.row_clusters  
-            print(f"Lignes analysées: {row_analysis.get('row_count', 0)}")  
-            print(f"Clusters de risque: {len(set(row_analysis.get('clusters', [])))}")  
-          
-        print(f"\n📋 Recommandations détaillées ({len(recommendations.recommendations)} items):")  
-        for i, rec in enumerate(recommendations.recommendations, 1):  
-            print(f"\n{i}. {rec.title} (Priorité: {rec.priority}/10)")  
-            print(f"   Catégorie: {rec.category}")  
-            print(f"   Description: {rec.description}")  
-            print(f"   Confiance: {rec.confidence:.2f}")  
-          
-        # Générer la visualisation des colonnes  
-        if recommendations.column_clusters:  
-            engine.visualize_column_clusters(recommendations.column_clusters, "column_analysis.png")  
-  
-# Pour tester le code  
-if __name__ == "__main__":  
-    asyncio.run(example_usage_single_file())

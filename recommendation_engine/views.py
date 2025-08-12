@@ -4,7 +4,7 @@ from django.shortcuts import render
 from django.shortcuts import render, redirect  
 from django.http import JsonResponse  
 from django.views import View  
-from .MoteurDeRecommandationAvecDeepSeekML import IntelligentRecommendationEngine, DeepSeekClient
+from .MoteurDeRecommandationAvecDeepSeekML import IntelligentRecommendationEngine
 from .models import RecommendationStorage  
 import os  
   

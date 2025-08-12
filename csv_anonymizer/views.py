@@ -17,7 +17,7 @@ from bson import ObjectId
 from semantic_engine import SemanticAnalyzer, IntelligentAutoTagger    
 from presidio_custom import create_enhanced_analyzer_engine    
 import os
-from recommendation_engine.MoteurDeRecommandationAvecDeepSeekML import IntelligentRecommendationEngine, DeepSeekClient
+from recommendation_engine.MoteurDeRecommandationAvecDeepSeekML import IntelligentRecommendationEngine, GeminiClient
 
 # Configuration centralisée des entités à exclure    
 EXCLUDED_ENTITY_TYPES = {    
@@ -111,16 +111,14 @@ class UploadCSVView(View):
                             detected_entities.add(entity.entity_type)        
         
         try:  
-            deepseek_api_key = os.getenv('DEEPSEEK_API_KEY', 'sk-8793ca669da3492db76a7111ac6d71c5')  
-            print(f"API Key: {deepseek_api_key}")  # Debug  
-            print(f"Detected entities: {detected_entities}")  # Debug  
-            print(f"Job ID: {job_id}")  # Debug  
-
-            deepseek_client = DeepSeekClient(deepseek_api_key)  
+            gemini_api_key = os.getenv('GEMINI_API_KEY', 'AIza')  
+            print(f"API Key: {gemini_api_key}")  
+      
+            print("RecommendationEngine créé avec succès")
             import asyncio
             async def generate_recommendations_async():  
-                  async with DeepSeekClient(deepseek_api_key) as deepseek_client:    
-                    recommendation_engine = IntelligentRecommendationEngine(deepseek_client)    
+                  async with GeminiClient(gemini_api_key) as gemini_client:    
+                    recommendation_engine = IntelligentRecommendationEngine(gemini_client , gemini_api_key)    
                     print("RecommendationEngine créé avec succès")  # Debug    
               
                     # Créer le profil du dataset    
