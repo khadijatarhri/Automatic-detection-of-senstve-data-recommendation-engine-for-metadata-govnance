@@ -111,7 +111,7 @@ class UploadCSVView(View):
                             detected_entities.add(entity.entity_type)        
         
         try:  
-            gemini_api_key = os.getenv('GEMINI_API_KEY', 'AIza')  
+            gemini_api_key = os.getenv('GEMINI_API_KEY', 'AIzaSyDMZedgDV-_ps4T1Pg03JiLgaq_srrlKDo')  
             print(f"API Key: {gemini_api_key}")  
       
             print("RecommendationEngine créé avec succès")

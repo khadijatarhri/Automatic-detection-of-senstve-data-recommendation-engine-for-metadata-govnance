@@ -65,7 +65,19 @@
                 </div>  
             </div>  
         </div>  
+
+    <!-- Bouton Métadonnées Enrichies -->  
+        <div class="flex justify-center mt-6">  
+            <a href="{% url 'recommendation_engine:metadata' job_id %}"   
+                class="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors duration-200">  
+                <i class="fas fa-tags mr-2"></i>  
+               Voir les métadonnées enrichi  
+            </a>  
+       </div>  
   
+        
+
+
         <!-- Recommendations List -->  
         {% if recommendations %}  
         <div class="bg-white rounded-xl shadow-lg overflow-hidden mb-8">  
@@ -170,13 +182,13 @@
         <!-- Action Buttons -->  
         <div class="flex flex-col sm:flex-row gap-4 justify-center">  
             <a href="{% url 'csv_anonymizer:upload' %}"   
-               class="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors duration-200">  
+               class="text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-300 font-medium rounded-full text-sm px-5 py-2.5 me-2 mb-2 dark:bg-gray-800 dark:hover:bg-gray-700 dark:focus:ring-gray-700 dark:border-gray-700">  
                 <i class="fas fa-upload mr-2"></i>  
                 Analyser un nouveau fichier  
             </a>  
               
             <button onclick="window.print()"   
-                    class="inline-flex items-center justify-center px-6 py-3 border border-gray-300 text-base font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors duration-200">  
+                    class="text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-300 font-medium rounded-full text-sm px-5 py-2.5 me-2 mb-2 dark:bg-gray-800 dark:hover:bg-gray-700 dark:focus:ring-gray-700 dark:border-gray-700">  
                 <i class="fas fa-print mr-2"></i>  
                 Imprimer le rapport  
             </button>  
