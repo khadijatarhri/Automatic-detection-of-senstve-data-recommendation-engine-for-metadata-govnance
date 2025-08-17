@@ -1,7 +1,7 @@
 # =============================================================================  
 # MOTEUR DE RECOMMANDATION AVEC GEMINI ML + KMEANS + PCA (ANALYSE INTRA-FICHIER)  
 # =============================================================================  
-  
+from pymongo import MongoClient        
 import pandas as pd  
 import numpy as np  
 from typing import Dict, List, Tuple, Optional, Any  
@@ -119,6 +119,20 @@ class IntelligentRecommendationEngine:
          self.recommendation_templates = self._load_recommendation_templates()  
          self._initialize_database() 
           
+
+
+    def get_column_annotations(self, job_id, column_name):  
+       """Récupère les annotations existantes pour une colonne"""  
+       client = MongoClient('mongodb://mongodb:27017/')  
+       metadata_db = client['metadata_validation_db']  
+       annotations_collection = metadata_db['column_annotations']  
+      
+       return annotations_collection.find_one({  
+        'job_id': job_id,  
+        'column_name': column_name  
+       })
+    
+
     def _initialize_database(self):  
         """Initialise la base de données pour stocker les recommandations"""  
         conn = sqlite3.connect(self.database_path)  

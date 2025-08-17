@@ -38,19 +38,41 @@ class DataCategory(Enum):
     TRANSACTION = "TRANSACTION"
     BEHAVIORAL = "BEHAVIORAL"
 
+
+@dataclass  
+class ColumnAnnotation:  
+    """Annotation au niveau colonne"""  
+    job_id: str  
+    column_name: str  
+    entity_type: str  
+    validation_status: str = "pending"  # pending, validated, rejected  
+    validated_by: Optional[str] = None  
+    validation_date: Optional[datetime] = None  
+    annotation_comments: Optional[str] = None  
+    rgpd_category: Optional[str] = None  
+    anonymization_method: Optional[str] = None  
+    sensitivity_level: Optional[str] = None
+
+
+
 @dataclass
 class EntityMetadata:
-    """Métadonnées enrichies d'une entité détectée"""
-    entity_type: str
-    entity_value: str
-    start_pos: int
-    end_pos: int
-    confidence_score: float
-    sensitivity_level: SensitivityLevel
-    data_category: DataCategory
-    semantic_context: List[str]
-    rgpd_category: Optional[str] = None
-    anonymization_method: Optional[str] = None
+    """Métadonnées enrichies d'une entité détectée"""  
+    entity_type: str  
+    entity_value: str  
+    start_pos: int  
+    end_pos: int  
+    confidence_score: float  
+    sensitivity_level: SensitivityLevel  
+    data_category: DataCategory  
+    semantic_context: List[str]  
+    rgpd_category: Optional[str] = None  
+    anonymization_method: Optional[str] = None  
+    validation_status: str = "pending"  
+    validated_by: Optional[str] = None  
+    validation_date: Optional[datetime] = None  
+    annotation_comments: Optional[str] = None  
+    suggested_corrections: Optional[Dict] = None
 
 @dataclass
 class DatasetProfile:
