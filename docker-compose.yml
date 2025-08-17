@@ -16,12 +16,28 @@ services:
       - mongodb  
     environment:  
       - MONGODB_HOST=mongodb  
-      - DEEPSEEK_API_KEY=sk-8793ca669da3492db76a7111ac6d71c5
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
       - DEBUG=True  
-      - SECRET_KEY="django-insecure-^b9h-e^uo!*k9rs=jf7ar$7@*x#9sf8pn=mi9f4_*z%h9^h%($"  
-
+      - SECRET_KEY=${SECRET_KEY} #Générer automatiquement lors de la création du projet dans settings.py
     volumes:  
       - .:/app  
+
+  test:  
+      build: .  
+      volumes:  
+        - .:/app  
+      depends_on:  
+        - web  
+        - mongodb  
+      environment:  
+        - DJANGO_SETTINGS_MODULE=backend_with_mongodb.settings  
+      command: >  
+        sh -c "  
+          playwright install &&  
+          python -m pytest tests/test_metadata_workflow.py -v  
+        "  
+      networks:  
+        - default
   
 volumes:  
   mongodb_data:

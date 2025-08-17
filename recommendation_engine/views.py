@@ -88,7 +88,7 @@ class RecommendationView(View):
 
 
 class MetadataView(View):  
-    def get(self, request, job_id):  
+  def get(self, request, job_id):  
         if not request.session.get("user_email"):  
             return redirect('login_form')  
           
@@ -100,84 +100,81 @@ class MetadataView(View):
             'metadata': metadata  
         })  
       
-    def _get_enriched_metadata(self, job_id):  
-        """  
-        Récupère les métadonnées enrichies du semantic_engine pour un job donné  
+  def _get_enriched_metadata(self, job_id):  
+    """Récupère et génère les métadonnées enrichies pour un job donné"""  
+    try:  
+        # Connexion à la bonne base de données  
+        client = MongoClient('mongodb://mongodb:27017/')  
+        csv_db = client['csv_anonymizer_db']  
+        collection = csv_db['csv_data']  
           
-        Args:  
-            job_id: ID du job d'analyse  
-              
-        Returns:  
-            List[EntityMetadata]: Liste des entités enrichies avec métadonnées  
-        """  
-        try:  
-            # Convertir job_id en ObjectId si nécessaire  
-            if len(job_id) == 24:  
-                object_id = ObjectId(job_id)  
-            else:  
-                object_id = job_id  
-              
-            # Récupérer les données du job depuis MongoDB  
-            collection = main_db["csv_analysis_jobs"]  
-            job_data = collection.find_one({'job_id': str(object_id)})  
-              
-            if not job_data:  
-                return []  
-              
-            # Récupérer le nom du fichier original pour le contexte  
-            job = main_db.anonymization_jobs.find_one({'_id': object_id})  
-            original_filename = job['original_filename'] if job else 'dataset.csv'  
-              
-            # Initialiser les moteurs d'analyse sémantique  
-            analyzer = create_enhanced_analyzer_engine("moroccan_entities_model_v2")  
-            semantic_analyzer = SemanticAnalyzer("moroccan_entities_model_v2")  
-            auto_tagger = IntelligentAutoTagger(analyzer, semantic_analyzer)  
-              
-            # Récupérer les données CSV  
-            headers = job_data['headers']  
-            csv_data = job_data['data']  
-            df = pd.DataFrame(csv_data)  
-              
-            enriched_entities = []  
-              
-            # Analyser chaque cellule du DataFrame  
-            for column in df.columns:  
-                for index, value in df[column].items():  
-                    if isinstance(value, str) and value.strip():  
-                        # Utiliser l'IntelligentAutoTagger pour analyser et enrichir  
+        # Récupérer les données CSV originales  
+        job_data = collection.find_one({'job_id': str(job_id)})  
+          
+        if not job_data:  
+            print(f"Aucune donnée trouvée pour job_id: {job_id}")  
+            return []  
+          
+        # Récupérer le nom du fichier original  
+        main_db_client = MongoClient('mongodb://mongodb:27017/')  
+        main_db = main_db_client['db']  
+        job_info = main_db.anonymization_jobs.find_one({'_id': ObjectId(job_id)})  
+        original_filename = job_info['original_filename'] if job_info else 'dataset.csv'  
+          
+        # Initialiser les moteurs d'analyse sémantique  
+        analyzer = create_enhanced_analyzer_engine("moroccan_entities_model_v2")  
+        semantic_analyzer = SemanticAnalyzer("moroccan_entities_model_v2")  
+        auto_tagger = IntelligentAutoTagger(analyzer, semantic_analyzer)  
+          
+        # Analyser les données et générer les métadonnées enrichies  
+        enriched_entities = []  
+        headers = job_data.get('headers', [])  
+        csv_data = job_data.get('data', [])  
+          
+        print(f"Analyse de {len(csv_data)} lignes de données...")  
+          
+        # Analyser chaque cellule du DataFrame  
+        for row_idx, row in enumerate(csv_data):  
+            print(f"Traitement ligne {row_idx + 1}/{len(csv_data)}")  
+            for header, value in row.items():  
+                if isinstance(value, str) and value.strip():  
+                    try:  
+                        # Utiliser l'IntelligentAutoTagger pour analyser  
                         entities, tags = auto_tagger.analyze_and_tag(  
                             value,   
                             dataset_name=original_filename  
                         )  
                           
-                        # Ajouter les entités enrichies à la liste  
+                        # Ajouter les entités enrichies  
                         for entity in entities:  
-                            # Créer une copie avec des informations supplémentaires  
-                            enriched_entity = EntityMetadata(  
-                                entity_type=entity.entity_type,  
-                                entity_value=entity.entity_value,  
-                                start_pos=entity.start_pos,  
-                                end_pos=entity.end_pos,  
-                                confidence_score=entity.confidence_score * 100,  # Convertir en pourcentage  
-                                sensitivity_level=entity.sensitivity_level,  
-                                data_category=entity.data_category,  
-                                semantic_context=entity.semantic_context,  
-                                rgpd_category=entity.rgpd_category,  
-                                anonymization_method=entity.anonymization_method  
-                            )  
+                            enriched_entity = {  
+                                'entity_type': entity.entity_type,  
+                                'entity_value': entity.entity_value,  
+                                'confidence_score': entity.confidence_score * 100,  
+                                'sensitivity_level': entity.sensitivity_level.value if hasattr(entity.sensitivity_level, 'value') else str(entity.sensitivity_level),  
+                                'data_category': entity.data_category.value if hasattr(entity.data_category, 'value') else str(entity.data_category),  
+                                'rgpd_category': entity.rgpd_category,  
+                                'anonymization_method': entity.anonymization_method  
+                            }  
                             enriched_entities.append(enriched_entity)  
-              
-            # Supprimer les doublons basés sur entity_type et entity_value  
-            unique_entities = []  
-            seen = set()  
-            for entity in enriched_entities:  
-                key = (entity.entity_type, entity.entity_value)  
-                if key not in seen:  
-                    seen.add(key)  
-                    unique_entities.append(entity)  
-              
-            return unique_entities  
-              
-        except Exception as e:  
-            print(f"Erreur lors de la récupération des métadonnées: {e}")  
-            return []
+                    except Exception as e:  
+                        print(f"Erreur lors de l'analyse de '{value}': {e}")  
+                        continue  
+          
+        # CORRECTION: Supprimer les doublons APRÈS avoir traité toutes les lignes  
+        unique_entities = []  
+        seen = set()  
+        for entity in enriched_entities:  
+            key = (entity['entity_type'], entity['entity_value'])  
+            if key not in seen:  
+                seen.add(key)  
+                unique_entities.append(entity)  
+          
+        print(f"Métadonnées enrichies générées: {len(unique_entities)} entités uniques sur {len(enriched_entities)} total")  
+        return unique_entities  
+          
+    except Exception as e:  
+        print(f"Erreur lors de la récupération des métadonnées: {e}")  
+        import traceback  
+        traceback.print_exc()  
+        return []
