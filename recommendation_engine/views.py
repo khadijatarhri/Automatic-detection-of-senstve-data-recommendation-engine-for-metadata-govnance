@@ -23,9 +23,9 @@ class GlossarySyncView(View):
             return JsonResponse({'error': 'Non autorisé'}, status=401)  
           
         sync_service = GlossarySyncService(  
-            atlas_url=os.getenv('ATLAS_URL', 'http://sandbox-hdp.hortonworks.com:21000'),  
+            atlas_url=os.getenv('ATLAS_URL', 'http://127.0.0.1:21000'),  
             atlas_username=os.getenv('ATLAS_USERNAME', 'admin'),  
-            atlas_password=os.getenv('ATLAS_PASSWORD', 'admin')  
+            atlas_password=os.getenv('ATLAS_PASSWORD', 'allahyarani123')  
         )  
           
         result = sync_service.sync_validated_terms_to_atlas()  
