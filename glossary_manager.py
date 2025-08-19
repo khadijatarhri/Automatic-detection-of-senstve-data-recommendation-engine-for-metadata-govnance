@@ -198,3 +198,47 @@ class GlossaryTermExtractor:
             'created_terms': created_count,  
             'total_processed': len(validated_terms)  
         }
+    
+
+
+    def extract_with_column_samples(self, job_id: str) -> List[Dict]:  
+       """Extrait les termes avec échantillons de valeurs des colonnes"""  
+       validated_terms = self.extract_validated_terms()  
+      
+       # Récupérer les données CSV pour enrichir avec des échantillons  
+       from pymongo import MongoClient  
+       client = MongoClient('mongodb://mongodb:27017/')  
+       csv_db = client['csv_anonymizer_db']  
+       csv_collection = csv_db['csv_data']  
+      
+       csv_data = csv_collection.find_one({'job_id': job_id})  
+      
+       if csv_data:  
+        for term in validated_terms:  
+            entity_type = term['name']  
+            # Trouver des échantillons de valeurs pour ce type d'entité  
+            samples = []  
+            for row in csv_data.get('data', [])[:10]:  # Limiter à 10 échantillons  
+                for column, value in row.items():  
+                    if isinstance(value, str) and value.strip():  
+                        # Ici vous pourriez utiliser votre détecteur d'entités  
+                        # pour vérifier si cette valeur correspond au type d'entité  
+                        samples.append({  
+                            'column': column,  
+                            'value': value[:50],  # Tronquer pour la sécurité  
+                            'masked_value': self._mask_sensitive_value(value, entity_type)  
+                        })  
+              
+            term['column_samples'] = samples[:5]  # Garder 5 échantillons max  
+      
+       return validated_terms  
+  
+    def _mask_sensitive_value(self, value: str, entity_type: str) -> str:  
+        """Masque les valeurs sensibles pour l'affichage"""  
+        if entity_type in ['PERSON', 'ID_MAROC']:  
+           return f"{value[:2]}***{value[-2:]}" if len(value) > 4 else "***"  
+        elif entity_type == 'EMAIL_ADDRESS':  
+            parts = value.split('@')  
+            if len(parts) == 2:  
+               return f"{parts[0][:2]}***@{parts[1]}"  
+        return value[:3] + "***"

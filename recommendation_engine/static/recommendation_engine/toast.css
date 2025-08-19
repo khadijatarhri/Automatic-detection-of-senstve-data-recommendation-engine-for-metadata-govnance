@@ -1,0 +1,29 @@
+.toast-container {  
+    position: fixed;  
+    top: 20px;  
+    right: 20px;  
+    z-index: 1000;  
+}  
+  
+.toast {  
+    background: white;  
+    border-radius: 8px;  
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);  
+    margin-bottom: 10px;  
+    padding: 16px;  
+    min-width: 300px;  
+    transform: translateX(400px);  
+    transition: transform 0.3s ease;  
+}  
+  
+.toast.show {  
+    transform: translateX(0);  
+}  
+  
+.toast.success {  
+    border-left: 4px solid #10b981;  
+}  
+  
+.toast.error {  
+    border-left: 4px solid #ef4444;  
+}

@@ -239,13 +239,29 @@ class MetadataView(View):
               
             # Vérifier le statut de validation  
             validation_status = "pending"  
+            rejected_count = 0  
+            validated_count = 0  
+  
             for entity_type in data['entity_types']:  
-                key = f"{column_name}_{entity_type}"  
-                if key in annotations and annotations[key]['validation_status'] == 'validated':  
-                    validation_status = "validated"  
-                    break  
-              
-            data['validation_status'] = validation_status  
+                 key = f"{column_name}_{entity_type}"  
+                 if key in annotations:  
+                       annotation_status = annotations[key]['validation_status']  
+                       if annotation_status == 'validated':  
+                           validated_count += 1  
+                       elif annotation_status == 'rejected':  
+                           rejected_count += 1  
+  
+           # Déterminer le statut global de la colonne  
+            if validated_count > 0 and rejected_count == 0:  
+                 validation_status = "validated"  
+            elif rejected_count > 0 and validated_count == 0:  
+                 validation_status = "rejected"  
+            elif validated_count > 0 and rejected_count > 0:  
+                 validation_status = "mixed"  # Optionnel: gérer le cas mixte  
+            else:  
+                 validation_status = "pending"  
+  
+            data['validation_status'] = validation_status
             result.append(data)  
           
         print(f"Métadonnées enrichies générées: {len(result)} colonnes analysées")  
@@ -291,17 +307,41 @@ class ColumnValidationWorkflowView(View):
               
             # Upsert (insert ou update)  
             column_annotations_collection.update_one(  
-                {'job_id': job_id, 'column_name': column_name, 'entity_type': entity_type},  
-                {'$set': annotation_doc},  
-                upsert=True  
+                   {'job_id': job_id, 'column_name': column_name, 'entity_type': entity_type},  
+                   {'$set': annotation_doc},  
+                   upsert=True  
             )  
-              
-            return JsonResponse({'success': True})  
-              
+  
+            sync_status = {'atlas_sync': False, 'ranger_sync': False}  
+  
+            # Déclencher la synchronisation automatique vers Atlas  
+            if validation_status == 'validated':  
+                   try:  
+                      from atlas_integration import GlossarySyncService  
+                      sync_service = GlossarySyncService(  
+                         atlas_url=os.getenv('ATLAS_URL', 'http://127.0.0.1:21000'),  
+                         atlas_username=os.getenv('ATLAS_USERNAME', 'admin'),  
+                         atlas_password=os.getenv('ATLAS_PASSWORD', 'allahyarani123')  
+                      )  
+                      sync_result = sync_service.sync_validated_terms_to_atlas()  
+                      sync_status['atlas_sync'] = sync_result.get('success', False)  
+                      print(f"Synchronisation Atlas automatique: {sync_result}")  
+                   except Exception as e:  
+                      print(f"Erreur synchronisation Atlas: {e}")  
+                      sync_status['atlas_error'] = str(e)  
+   
+            return JsonResponse({  
+                   'success': True,  
+                   'message': 'Validation sauvegardée avec succès',  
+                   'sync_status': sync_status,  
+                   'atlas_synced': sync_status['atlas_sync']  
+            })
+        
         except Exception as e:  
             return JsonResponse({'error': str(e)}, status=500)
         
 
+        
 
 class ValidationWorkflowView(View):  
     def post(self, request, job_id, entity_id):  
