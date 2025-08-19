@@ -19,7 +19,7 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - DEBUG=True  
       - SECRET_KEY=${SECRET_KEY} #Générer automatiquement lors de la création du projet dans settings.py
-      - ATLAS_URL=http://127.0.0.1:21000  
+      - ATLAS_URL=http://172.17.0.1:21000  
       - ATLAS_USERNAME=admin  
       - ATLAS_PASSWORD=allahyarani123
     volumes:  

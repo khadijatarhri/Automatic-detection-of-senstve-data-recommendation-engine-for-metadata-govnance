@@ -79,10 +79,12 @@
                                 </div>  
                             </td>  
                             <td class="px-6 py-4 whitespace-nowrap">  
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">  
-                                    <i class="fas fa-clock mr-1"></i>En attente  
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium   
+                                      {% if column.validation_status == 'validated' %}bg-green-100 text-green-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">  
+                                    <i class="fas fa-{% if column.validation_status == 'validated' %}check{% else %}clock{% endif %} mr-1"></i>  
+                                    {% if column.validation_status == 'validated' %}Validé{% else %}En attente{% endif %}  
                                 </span>  
-                            </td>  
+                            </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">  
                                 <button onclick="openColumnValidationModal('{{ column.column_name }}', {{ column.entity_types|safe }})"  
                                         class="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">  
@@ -221,7 +223,7 @@
         const anonymizationMethod = document.getElementById('columnAnonymizationMethod').value;  
         const comments = document.getElementById('columnAnnotationComments').value;  
           
-        fetch(`/column-validation/{{ job_id }}/${currentColumnName}/`, {  
+        fetch(`/recommendations/column-validation/{{ job_id }}/${currentColumnName}/`, {  
             method: 'POST',  
             headers: {  
                 'Content-Type': 'application/json',  

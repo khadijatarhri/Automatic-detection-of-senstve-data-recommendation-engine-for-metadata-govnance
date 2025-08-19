@@ -39,19 +39,45 @@ class AtlasGlossaryClient:
         self.session.headers.update({'Content-Type': 'application/json'})  
       
     def create_glossary(self, glossary_name: str) -> str:  
-        """Crée un glossaire dans Atlas"""  
-        url = f"{self.atlas_url}/api/atlas/v2/glossary"  
-        payload = {  
-            "name": glossary_name,  
-            "shortDescription": "Glossaire RGPD automatisé",  
-            "longDescription": "Termes générés par le système de détection RGPD",  
-            "language": "French",  
-            "usage": "Gouvernance des données RGPD"  
-        }  
-          
+     """Crée un glossaire dans Atlas ou récupère l'existant"""  
+     url = f"{self.atlas_url}/api/atlas/v2/glossary"  
+      
+     # Essayer de récupérer le glossaire existant d'abord  
+     try:  
+        response = self.session.get(url)  
+        if response.status_code == 200:  
+            glossaries = response.json()  
+            for glossary in glossaries:  
+                if glossary.get('name') == glossary_name:  
+                    return glossary['guid']  
+     except:  
+        pass  
+      
+     # Si pas trouvé, créer un nouveau  
+     payload = {  
+        "name": glossary_name,  
+        "shortDescription": "Glossaire RGPD automatisé",  
+        "longDescription": "Termes générés par le système de détection RGPD",  
+        "language": "French",  
+        "usage": "Gouvernance des données RGPD"  
+    }  
+      
+     try:  
         response = self.session.post(url, json=payload)  
         response.raise_for_status()  
         return response.json()['guid']  
+     except requests.exceptions.HTTPError as e:  
+        if e.response.status_code == 409:  
+            # Glossaire existe déjà, essayer de le récupérer à nouveau  
+            response = self.session.get(url)  
+            glossaries = response.json()  
+            for glossary in glossaries:  
+                if glossary.get('name') == glossary_name:  
+                    return glossary['guid']  
+        raise
+
+
+
       
     def create_term(self, glossary_guid: str, term_data: Dict) -> str:  
         """Crée un terme dans le glossaire Atlas"""  

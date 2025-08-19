@@ -13,7 +13,7 @@ from semantic_engine import SemanticAnalyzer, IntelligentAutoTagger, EntityMetad
 from presidio_custom import create_enhanced_analyzer_engine  
 from db_connections import db as main_db  
 import pandas as pd  
-import datetime
+from datetime import datetime
 
 from atlas_integration import GlossarySyncService  
   
@@ -141,6 +141,16 @@ class MetadataView(View):
         csv_db = client['csv_anonymizer_db']  
         collection = csv_db['csv_data']  
           
+        # Connexion à la base de données des annotations  
+        metadata_db = client['metadata_validation_db']  
+        annotations_collection = metadata_db['column_annotations']  
+          
+        # Récupérer les annotations existantes  
+        annotations = {}  
+        for annotation in annotations_collection.find({'job_id': job_id}):  
+            key = f"{annotation['column_name']}_{annotation['entity_type']}"  
+            annotations[key] = annotation  
+          
         # Récupérer les données CSV originales  
         job_data = collection.find_one({'job_id': str(job_id)})  
           
@@ -227,6 +237,15 @@ class MetadataView(View):
             else:  
                 data['avg_confidence'] = 0  
               
+            # Vérifier le statut de validation  
+            validation_status = "pending"  
+            for entity_type in data['entity_types']:  
+                key = f"{column_name}_{entity_type}"  
+                if key in annotations and annotations[key]['validation_status'] == 'validated':  
+                    validation_status = "validated"  
+                    break  
+              
+            data['validation_status'] = validation_status  
             result.append(data)  
           
         print(f"Métadonnées enrichies générées: {len(result)} colonnes analysées")  
@@ -237,7 +256,6 @@ class MetadataView(View):
         import traceback  
         traceback.print_exc()  
         return []
-
 class ColumnValidationWorkflowView(View):  
     def post(self, request, job_id, column_name):  
         if not request.session.get("user_email"):  

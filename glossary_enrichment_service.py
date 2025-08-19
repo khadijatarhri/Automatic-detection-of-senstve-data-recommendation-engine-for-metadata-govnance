@@ -1,7 +1,7 @@
 from glossary_manager import GlossaryManager, GlossaryTermExtractor  
 from recommendation_engine.MoteurDeRecommandationAvecDeepSeekML import IntelligentRecommendationEngine  
 from typing import Dict, List  
-import datetime
+from datetime import datetime
   
 class GlossaryEnrichmentService:  
     """Service d'enrichissement automatique du glossaire"""  
