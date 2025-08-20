@@ -105,6 +105,26 @@ class AtlasGlossaryClient:
                     return glossary['guid']  
         raise
 
+    def _find_existing_term_guid(self, glossary_guid: str, term_name: str) -> str:  
+     """Trouve le GUID d'un terme existant dans le glossaire"""  
+     try:  
+        search_url = f"{self.atlas_url}/api/atlas/v2/search/basic"  
+        search_payload = {  
+            "query": f"rgpd_glossary.{term_name}@cluster1",  
+            "typeName": "AtlasGlossaryTerm"  
+        }  
+        search_response = self.session.post(search_url, json=search_payload)  
+          
+        if search_response.status_code == 200:  
+            search_results = search_response.json()  
+            if search_results.get('entities'):  
+                return search_results['entities'][0]['guid']  
+        return None  
+     except Exception as e:  
+        print(f"Erreur lors de la recherche du terme {term_name}: {e}")  
+        return None
+
+
 
 
     def create_term(self, glossary_guid: str, term_data: Dict) -> str:  

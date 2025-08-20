@@ -1,4 +1,5 @@
 from django.shortcuts import render
+from hive_integration.hive_sandbox_api import HiveSandboxAPI
 
 # Create your views here.
 from django.shortcuts import render, redirect  
@@ -28,7 +29,7 @@ class GlossarySyncView(View):
             atlas_password=os.getenv('ATLAS_PASSWORD', 'allahyarani123')  
         )  
           
-        result = sync_service.sync_validated_terms_to_atlas()  
+        result = sync_service.sync_with_categories_and_classifications()
         return JsonResponse(result)  
   
 class GlossaryView(View):  
@@ -323,13 +324,36 @@ class ColumnValidationWorkflowView(View):
                          atlas_username=os.getenv('ATLAS_USERNAME', 'admin'),  
                          atlas_password=os.getenv('ATLAS_PASSWORD', 'allahyarani123')  
                       )  
-                      sync_result = sync_service.sync_validated_terms_to_atlas()  
+                      sync_result = sync_service.sync_with_categories_and_classifications()
                       sync_status['atlas_sync'] = sync_result.get('success', False)  
                       print(f"Synchronisation Atlas automatique: {sync_result}")  
                    except Exception as e:  
                       print(f"Erreur synchronisation Atlas: {e}")  
                       sync_status['atlas_error'] = str(e)  
-   
+           
+                              # Après la synchronisation Atlas réussie  
+            if sync_status['atlas_sync']:  
+                try:  
+                   from hive_sandbox_api import HiveSandboxAPI  
+          
+                   # Récupérer les métadonnées validées depuis MongoDB  
+                   metadata_db = MongoClient('mongodb://mongodb:27017/')['metadata_validation_db']  
+                   annotations = metadata_db['column_annotations']  
+                   validated_records = list(annotations.find({  
+                         'job_id': job_id,  
+                         'validation_status': 'validated'  
+                   }))  
+          
+                   # Synchroniser vers HDP Sandbox  
+                   hive_api = HiveSandboxAPI()  
+                   hive_api.sync_metadata_to_hive(validated_records)  
+                   sync_status['hive_sync'] = True  
+          
+                except Exception as e:  
+                   print(f"Erreur synchronisation Hive Sandbox: {e}")  
+                   sync_status['hive_sync'] = False
+
+
             return JsonResponse({  
                    'success': True,  
                    'message': 'Validation sauvegardée avec succès',  
@@ -341,7 +365,7 @@ class ColumnValidationWorkflowView(View):
             return JsonResponse({'error': str(e)}, status=500)
         
 
-        
+
 
 class ValidationWorkflowView(View):  
     def post(self, request, job_id, entity_id):  
