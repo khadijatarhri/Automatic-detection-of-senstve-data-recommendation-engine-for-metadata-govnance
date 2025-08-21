@@ -13,8 +13,8 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt  
   
 # Installer les navigateurs Playwright  
-RUN playwright install-deps  
-RUN playwright install  
+#RUN playwright install-deps  
+#RUN playwright install  
   
 COPY create_admin.py ./  
   

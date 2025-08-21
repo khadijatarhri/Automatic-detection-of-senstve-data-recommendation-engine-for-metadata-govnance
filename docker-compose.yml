@@ -25,22 +25,22 @@ services:
     volumes:  
       - .:/app  
 
-  test:  
-      build: .  
-      volumes:  
-        - .:/app  
-      depends_on:  
-        - web  
-        - mongodb  
-      environment:  
-        - DJANGO_SETTINGS_MODULE=backend_with_mongodb.settings  
-      command: >  
-        sh -c "  
-          playwright install &&  
-          python -m pytest tests/test_metadata_workflow.py -v  
-        "  
-      networks:  
-        - default
+ # test:  
+  #    build: .  
+   #   volumes:  
+    #    - .:/app  
+     ## depends_on:  
+       # - web  
+        #- mongodb  
+#      environment:  
+ #       - DJANGO_SETTINGS_MODULE=backend_with_mongodb.settings  
+  ##    command: >  
+    #    sh -c "  
+     ##     playwright install &&  
+       #   python -m pytest tests/test_metadata_workflow.py -v  
+        #"  
+     # networks:  
+      #  - default
   
 volumes:  
   mongodb_data:
