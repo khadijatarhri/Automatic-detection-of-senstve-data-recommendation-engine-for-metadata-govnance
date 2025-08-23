@@ -1,0 +1,414 @@
+<!DOCTYPE html>  
+<html lang="fr">  
+<head>  
+    <meta charset="UTF-8">  
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">  
+    <title>Contrôle Qualité des Données</title>  
+    <script src="https://cdn.tailwindcss.com"></script>  
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">  
+</head>  
+<body class="bg-gradient-to-br from-slate-50 to-blue-50 min-h-screen">  
+    {% include 'csv_anonymizer/datasteward_navigation.html' %}
+
+    <div class="container mx-auto px-4 py-8">  
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8">  
+            <h1 class="text-3xl font-light text-slate-700 mb-8 flex items-center">  
+                <i class="fas fa-chart-line text-blue-500 mr-4"></i>  
+                Contrôle Qualité des Données  
+            </h1>  
+              
+            <!-- Tableau de bord qualité -->  
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">  
+                <div class="bg-gradient-to-br from-emerald-50 to-emerald-100 border border-emerald-200 rounded-xl p-6">  
+                    <div class="flex items-center justify-between">  
+                        <div>  
+                            <p class="text-emerald-600 text-sm font-medium mb-1">Score de Complétude</p>  
+                            <p class="text-3xl font-bold text-emerald-700">{{ quality_analysis.completeness.score }}%</p>  
+                        </div>  
+                        <div class="bg-emerald-100 rounded-full p-3">  
+                            <i class="fas fa-check-circle text-2xl text-emerald-600"></i>  
+                        </div>  
+                    </div>  
+                </div>  
+                  
+                <div class="bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200 rounded-xl p-6">  
+                    <div class="flex items-center justify-between">  
+                        <div>  
+                            <p class="text-amber-600 text-sm font-medium mb-1">Problèmes de Cohérence</p>  
+                            <p class="text-3xl font-bold text-amber-700">{{ quality_analysis.consistency.total_issues }}</p>  
+                        </div>  
+                        <div class="bg-amber-100 rounded-full p-3">  
+                            <i class="fas fa-exclamation-triangle text-2xl text-amber-600"></i>  
+                        </div>  
+                    </div>  
+                </div>  
+                  
+                <div class="bg-gradient-to-br from-rose-50 to-rose-100 border border-rose-200 rounded-xl p-6">  
+                    <div class="flex items-center justify-between">  
+                        <div>  
+                            <p class="text-rose-600 text-sm font-medium mb-1">Doublons Détectés</p>  
+                            <p class="text-3xl font-bold text-rose-700">{{ quality_analysis.duplicates.total_issues }}</p>  
+                        </div>  
+                        <div class="bg-rose-100 rounded-full p-3">  
+                            <i class="fas fa-copy text-2xl text-rose-600"></i>  
+                        </div>  
+                    </div>  
+                </div>  
+            </div>  
+              
+            <!-- Section Actions de Nettoyage -->  
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">  
+                <div class="bg-white border border-slate-200 rounded-xl p-6 hover:shadow-md transition-shadow duration-200">  
+                    <div class="flex items-start space-x-4">  
+                        <div class="bg-blue-50 rounded-lg p-3">  
+                            <i class="fas fa-copy text-blue-600 text-xl"></i>  
+                        </div>  
+                        <div class="flex-1">  
+                            <h3 class="text-lg font-semibold text-slate-700 mb-2">  
+                                Supprimer les Doublons  
+                            </h3>  
+                            <p class="text-sm text-slate-500 mb-4">  
+                                Nettoyer automatiquement toutes les lignes dupliquées du fichier CSV  
+                            </p>  
+                            <button onclick="confirmRemoveDuplicates()"   
+                                    class="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors duration-200 shadow-sm">  
+                                <i class="fas fa-trash mr-2"></i>  
+                                Supprimer les Doublons  
+                            </button>  
+                        </div>  
+                    </div>  
+                </div>  
+  
+                <div class="bg-white border border-slate-200 rounded-xl p-6 hover:shadow-md transition-shadow duration-200">  
+                    <div class="flex items-start space-x-4">  
+                        <div class="bg-orange-50 rounded-lg p-3">  
+                            <i class="fas fa-exclamation-triangle text-orange-600 text-xl"></i>  
+                        </div>  
+                        <div class="flex-1">  
+                            <h3 class="text-lg font-semibold text-slate-700 mb-2">  
+                                Supprimer les Valeurs Manquantes  
+                            </h3>  
+                            <p class="text-sm text-slate-500 mb-4">  
+                                Nettoyer automatiquement toutes les lignes avec des valeurs vides  
+                            </p>  
+                            <button onclick="confirmRemoveMissingValues()"   
+                                    class="w-full bg-orange-500 hover:bg-orange-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors duration-200 shadow-sm">  
+                                <i class="fas fa-broom mr-2"></i>  
+                                Supprimer les Valeurs Manquantes  
+                            </button>  
+                        </div>  
+                    </div>  
+                </div>  
+            </div>  
+  
+            <!-- Section Doublons -->  
+            {% if quality_analysis.duplicates.total_issues > 0 %}  
+            <div class="bg-rose-50 border border-rose-200 rounded-xl p-6 mb-8">  
+                <h2 class="text-xl font-semibold text-rose-700 mb-4 flex items-center">  
+                    <i class="fas fa-copy mr-3"></i>  
+                    Doublons Détectés ({{ quality_analysis.duplicates.total_issues }})  
+                </h2>  
+                  
+                <div class="space-y-3">  
+                    {% for column, duplicates in quality_analysis.duplicates.column_duplicates.items %}  
+                    <div class="bg-white rounded-lg p-4 border border-rose-100">  
+                        <h3 class="font-medium text-slate-700">Colonne: {{ column }}</h3>  
+                        <p class="text-sm text-slate-500 mb-3">{{ duplicates.count }} doublons trouvés</p>  
+                          
+                        <button onclick="removeDuplicates('{{ column }}')"   
+                                class="bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200">  
+                            <i class="fas fa-trash mr-2"></i>  
+                            Supprimer les doublons  
+                        </button>  
+                    </div>  
+                    {% endfor %}  
+                </div>  
+            </div>  
+            {% endif %}  
+              
+            <!-- Section Recommandations IA -->  
+            <div class="bg-blue-50 border border-blue-200 rounded-xl p-6">  
+                <h2 class="text-xl font-semibold text-blue-700 mb-4 flex items-center">  
+                    <i class="fas fa-robot mr-3"></i>  
+                    Recommandations IA pour la Qualité  
+                </h2>  
+                  
+                <div class="space-y-3">  
+                    {% for recommendation in quality_analysis.ai_recommendations %}  
+                    <div class="bg-white rounded-lg p-4 border border-blue-100">  
+                        <div class="flex items-start justify-between">  
+                            <div class="flex-1">  
+                                <h3 class="font-medium text-slate-700">{{ recommendation.column }}</h3>  
+                                <p class="text-sm text-slate-500 mt-1">{{ recommendation.description }}</p>  
+                                <p class="text-sm text-blue-600 mt-2 flex items-center">  
+                                    <i class="fas fa-lightbulb mr-2"></i>  
+                                    {{ recommendation.auto_fix_suggestion }}  
+                                </p>  
+                            </div>  
+                            <div class="ml-4 flex items-center space-x-2">  
+                                <span class="px-3 py-1 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">  
+                                    Priorité: {{ recommendation.priority }}  
+                                </span>  
+                                <button onclick="applyAIFix('{{ recommendation.column }}', '{{ recommendation.issue_type }}')"  
+                                        class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-200">  
+                                    <i class="fas fa-magic mr-1"></i>  
+                                    Appliquer  
+                                </button>  
+                            </div>  
+                        </div>  
+                    </div>  
+                    {% endfor %}  
+                </div>  
+            </div>  
+        </div>  
+    </div>  
+  
+    <!-- Modal de confirmation pour les doublons -->  
+    <div id="duplicatesModal" class="fixed inset-0 bg-slate-900 bg-opacity-50 hidden z-50">  
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center">  
+            <div class="bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:max-w-lg sm:w-full">  
+                <div class="bg-white px-6 pt-6 pb-4">  
+                    <div class="sm:flex sm:items-start">  
+                        <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-blue-50 sm:mx-0 sm:h-10 sm:w-10">  
+                            <i class="fas fa-copy text-blue-600"></i>  
+                        </div>  
+                        <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">  
+                            <h3 class="text-lg leading-6 font-semibold text-slate-800">  
+                                Supprimer les Doublons  
+                            </h3>  
+                            <div class="mt-2">  
+                                <p class="text-sm text-slate-500">  
+                                    Êtes-vous sûr de vouloir supprimer tous les doublons du fichier CSV ?   
+                                    Cette action est irréversible et le fichier sera automatiquement sauvegardé.  
+                                </p>  
+                            </div>  
+                        </div>  
+                    </div>  
+                </div>  
+                <div class="bg-slate-50 px-6 py-4 sm:flex sm:flex-row-reverse">  
+                    <button onclick="removeDuplicatesConfirmed()"   
+                            class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-blue-500 text-base font-medium text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm transition-colors duration-200">  
+                        <i class="fas fa-check mr-2"></i>  
+                        Confirmer  
+                    </button>  
+                    <button onclick="closeDuplicatesModal()"   
+                            class="mt-3 w-full inline-flex justify-center rounded-lg border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition-colors duration-200">  
+                        <i class="fas fa-times mr-2"></i>  
+                        Annuler  
+                    </button>  
+                </div>  
+            </div>  
+        </div>  
+    </div>  
+  
+    <!-- Modal de confirmation pour les valeurs manquantes -->  
+    <div id="missingValuesModal" class="fixed inset-0 bg-slate-900 bg-opacity-50 hidden z-50">  
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center">  
+            <div class="bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:max-w-lg sm:w-full">  
+                <div class="bg-white px-6 pt-6 pb-4">  
+                    <div class="sm:flex sm:items-start">  
+                        <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-orange-50 sm:mx-0 sm:h-10 sm:w-10">  
+                            <i class="fas fa-exclamation-triangle text-orange-600"></i>  
+                        </div>  
+                        <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">  
+                            <h3 class="text-lg leading-6 font-semibold text-slate-800">  
+                                Supprimer les Valeurs Manquantes  
+                            </h3>  
+                            <div class="mt-2">  
+                                <p class="text-sm text-slate-500">  
+                                    Êtes-vous sûr de vouloir supprimer toutes les lignes contenant des valeurs manquantes ?   
+                                    Cette action est irréversible et le fichier sera automatiquement sauvegardé.  
+                                </p>  
+                            </div>  
+                        </div>  
+                    </div>  
+                </div>  
+                <div class="bg-slate-50 px-6 py-4 sm:flex sm:flex-row-reverse">  
+                    <button onclick="removeMissingValuesConfirmed()"   
+                    class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-orange-500 text-base font-medium text-white hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 sm:ml-3 sm:w-auto sm:text-sm transition-colors duration-200">  
+                    <i class="fas fa-check mr-2"></i>  
+                    Confirmer  
+                </button>  
+                <button onclick="closeMissingValuesModal()"   
+                        class="mt-3 w-full inline-flex justify-center rounded-lg border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition-colors duration-200">  
+                    <i class="fas fa-times mr-2"></i>  
+                    Annuler  
+                </button>  
+            </div>  
+        </div>  
+    </div>  
+</div>  
+
+<script>  
+    // Fonctions pour les doublons  
+    function confirmRemoveDuplicates() {  
+        document.getElementById('duplicatesModal').classList.remove('hidden');  
+    }  
+      
+    function closeDuplicatesModal() {  
+        document.getElementById('duplicatesModal').classList.add('hidden');  
+    }  
+      
+    function removeDuplicatesConfirmed() {  
+        showLoadingIndicator('Suppression des doublons en cours...');  
+          
+        fetch('/csv-anonymizer/remove-duplicates/', {  
+            method: 'POST',  
+            headers: {  
+                'Content-Type': 'application/json',  
+                'X-CSRFToken': getCookie('csrftoken')  
+            },  
+            body: JSON.stringify({  
+                'job_id': '{{ job_id }}'  
+            })  
+        })  
+        .then(response => response.json())  
+        .then(data => {  
+            hideLoadingIndicator();  
+            if (data.success) {  
+                showSuccessMessage('Doublons supprimés avec succès !');  
+                setTimeout(() => {  
+                    window.location.reload();  
+                }, 2000);  
+            } else {  
+                showErrorMessage('Erreur lors de la suppression des doublons');  
+            }  
+        })  
+        .catch(error => {  
+            hideLoadingIndicator();  
+            showErrorMessage('Erreur de connexion');  
+        });  
+          
+        closeDuplicatesModal();  
+    }  
+      
+    // Fonctions pour les valeurs manquantes  
+    function confirmRemoveMissingValues() {  
+        document.getElementById('missingValuesModal').classList.remove('hidden');  
+    }  
+      
+    function closeMissingValuesModal() {  
+        document.getElementById('missingValuesModal').classList.add('hidden');  
+    }  
+      
+    function removeMissingValuesConfirmed() {  
+        showLoadingIndicator('Suppression des valeurs manquantes en cours...');  
+          
+        fetch('/csv-anonymizer/remove-missing-values/', {  
+            method: 'POST',  
+            headers: {  
+                'Content-Type': 'application/json',  
+                'X-CSRFToken': getCookie('csrftoken')  
+            },  
+            body: JSON.stringify({  
+                'job_id': '{{ job_id }}'  
+            })  
+        })  
+        .then(response => response.json())  
+        .then(data => {  
+            hideLoadingIndicator();  
+            if (data.success) {  
+                showSuccessMessage('Valeurs manquantes supprimées avec succès !');  
+                setTimeout(() => {  
+                    window.location.reload();  
+                }, 2000);  
+            } else {  
+                showErrorMessage('Erreur lors de la suppression des valeurs manquantes');  
+            }  
+        })  
+        .catch(error => {  
+            hideLoadingIndicator();  
+            showErrorMessage('Erreur de connexion');  
+        });  
+          
+        closeMissingValuesModal();  
+    }  
+      
+    // Fonctions utilitaires  
+    function getCookie(name) {  
+        let cookieValue = null;  
+        if (document.cookie && document.cookie !== '') {  
+            const cookies = document.cookie.split(';');  
+            for (let i = 0; i < cookies.length; i++) {  
+                const cookie = cookies[i].trim();  
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {  
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));  
+                    break;  
+                }  
+            }  
+        }  
+        return cookieValue;  
+    }  
+      
+    function showLoadingIndicator(message) {  
+        const loader = document.createElement('div');  
+        loader.id = 'loadingIndicator';  
+        loader.className = 'fixed inset-0 bg-slate-900 bg-opacity-50 z-50 flex items-center justify-center';  
+        loader.innerHTML = `  
+            <div class="bg-white rounded-xl p-6 flex items-center shadow-2xl">  
+                <i class="fas fa-spinner fa-spin text-blue-500 text-2xl mr-3"></i>  
+                <span class="text-slate-700 font-medium">${message}</span>  
+            </div>  
+        `;  
+        document.body.appendChild(loader);  
+    }  
+      
+    function hideLoadingIndicator() {  
+        const loader = document.getElementById('loadingIndicator');  
+        if (loader) {  
+            loader.remove();  
+        }  
+    }  
+      
+    function showSuccessMessage(message) {  
+        showToast(message, 'success');  
+    }  
+      
+    function showErrorMessage(message) {  
+        showToast(message, 'error');  
+    }  
+      
+    function showToast(message, type) {  
+        const toast = document.createElement('div');  
+        toast.className = `fixed top-4 right-4 z-50 px-6 py-3 rounded-xl text-white shadow-lg transform transition-all duration-300 ${  
+            type === 'success' ? 'bg-emerald-500' : 'bg-rose-500'  
+        }`;  
+        toast.innerHTML = `  
+            <div class="flex items-center">  
+                <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-triangle'} mr-2"></i>  
+                <span class="font-medium">${message}</span>  
+            </div>  
+        `;  
+        document.body.appendChild(toast);  
+          
+        // Animation d'entrée  
+        setTimeout(() => {  
+            toast.style.transform = 'translateX(0)';  
+            toast.style.opacity = '1';  
+        }, 100);  
+          
+        // Suppression après 3 secondes  
+        setTimeout(() => {  
+            toast.style.transform = 'translateX(100%)';  
+            toast.style.opacity = '0';  
+            setTimeout(() => {  
+                toast.remove();  
+            }, 300);  
+        }, 3000);  
+    }  
+      
+    // Fermer les modales en cliquant à l'extérieur  
+    window.onclick = function(event) {  
+        const duplicatesModal = document.getElementById('duplicatesModal');  
+        const missingValuesModal = document.getElementById('missingValuesModal');  
+          
+        if (event.target === duplicatesModal) {  
+            closeDuplicatesModal();  
+        }  
+        if (event.target === missingValuesModal) {  
+            closeMissingValuesModal();  
+        }  
+    }  
+</script>  
+</body>  
+</html>  

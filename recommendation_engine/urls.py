@@ -11,6 +11,9 @@ urlpatterns = [
     path('column-validation/<str:job_id>/<str:column_name>/', views.ColumnValidationWorkflowView.as_view(), name='column_validation'),
     path('glossary/', views.GlossaryView.as_view(), name='glossary'),  
     path('glossary/sync/', views.GlossarySyncView.as_view(), name='glossary_sync'),
+    path('data-quality/<str:job_id>/', views.DataQualityView.as_view(), name='data_quality'),  
+
+
  
 
 ]

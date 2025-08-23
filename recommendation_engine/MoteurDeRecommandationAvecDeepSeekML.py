@@ -939,3 +939,435 @@ class IntelligentRecommendationEngine:
       
     
   
+class DataQualityEngine:  
+    def __init__(self, gemini_client: GeminiClient):  
+        self.gemini_client = gemini_client  
+          
+    async def analyze_data_quality(self, csv_data: list, headers: list) -> Dict[str, Any]:  
+        """Analyse complète de la qualité des données"""  
+        return {  
+            'completeness': self._analyze_completeness(csv_data, headers),  
+            'consistency': self._analyze_consistency(csv_data, headers),  
+            'duplicates': self._detect_duplicates(csv_data, headers),  
+            'ai_recommendations':await self._generate_ai_quality_recommendations(csv_data, headers)  
+        }  
+      
+    def _detect_duplicates(self, csv_data: list, headers: list) -> Dict[str, Any]:  
+        """Détection des doublons avec analyse par colonne"""  
+        df = pd.DataFrame(csv_data)  
+        df.columns = headers[:len(df.columns)]  
+          
+        # Doublons exacts  
+        exact_duplicates = df.duplicated().sum()  
+        duplicate_rows = df[df.duplicated(keep=False)].index.tolist()  
+          
+        # Doublons par colonne clé (ID, email, etc.)  
+        key_columns = self._identify_key_columns(headers)  
+        column_duplicates = {}  
+          
+        for col in key_columns:  
+            if col in df.columns:  
+                col_duplicates = df[df[col].duplicated(keep=False)]  
+                column_duplicates[col] = {  
+                    'count': len(col_duplicates),  
+                    'rows': col_duplicates.index.tolist(),  
+                    'values': col_duplicates[col].tolist()  
+                }  
+          
+        return {  
+            'exact_duplicates': exact_duplicates,  
+            'duplicate_rows': duplicate_rows,  
+            'column_duplicates': column_duplicates,  
+            'total_issues': exact_duplicates + sum(len(v['rows']) for v in column_duplicates.values())  
+        }  
+      
+    def _analyze_consistency(self, csv_data: list, headers: list) -> Dict[str, Any]:  
+        """Analyse de cohérence des données"""  
+        df = pd.DataFrame(csv_data)  
+        df.columns = headers[:len(df.columns)]  
+          
+        consistency_issues = {}  
+          
+        for col in df.columns:  
+            issues = []  
+              
+            # Vérifier les formats incohérents (dates, emails, téléphones)  
+            if 'email' in col.lower():  
+                invalid_emails = self._validate_email_format(df[col])  
+                if invalid_emails:  
+                    issues.append({'type': 'invalid_email', 'count': len(invalid_emails), 'rows': invalid_emails})  
+              
+            if 'phone' in col.lower() or 'tel' in col.lower():  
+                invalid_phones = self._validate_phone_format(df[col])  
+                if invalid_phones:  
+                    issues.append({'type': 'invalid_phone', 'count': len(invalid_phones), 'rows': invalid_phones})  
+              
+            if 'date' in col.lower():  
+                invalid_dates = self._validate_date_format(df[col])  
+                if invalid_dates:  
+                    issues.append({'type': 'invalid_date', 'count': len(invalid_dates), 'rows': invalid_dates})  
+              
+            if issues:  
+                consistency_issues[col] = issues  
+          
+        return consistency_issues  
+    
+
+    def _identify_key_columns(self, headers):  
+        """Identifie les colonnes clés potentielles"""  
+        key_indicators = ['id', 'email', 'phone', 'tel', 'cin', 'passport']  
+        key_columns = []  
+          
+        for header in headers:  
+            header_lower = header.lower()  
+            if any(indicator in header_lower for indicator in key_indicators):  
+                key_columns.append(header)  
+          
+        return key_columns  
+
+
+    def _validate_email_format(self, csv_data, column):  
+        """Valide le format des emails"""  
+        import re  
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'  
+        invalid_rows = []  
+          
+        for idx, row in enumerate(csv_data):  
+            value = row.get(column, '')  
+            if value and not re.match(email_pattern, str(value)):  
+                invalid_rows.append(idx)  
+          
+        return invalid_rows  
+      
+    def _validate_phone_format(self, csv_data, column):  
+        """Valide le format des téléphones"""  
+        import re  
+        # Pattern pour téléphones marocains et internationaux  
+        phone_pattern = r'^(\+212|0)[5-7][0-9]{8}$|^\+?[1-9]\d{1,14}$'  
+        invalid_rows = []  
+          
+        for idx, row in enumerate(csv_data):  
+            value = row.get(column, '')  
+            if value and not re.match(phone_pattern, str(value).replace(' ', '').replace('-', '')):  
+                invalid_rows.append(idx)  
+          
+        return invalid_rows  
+      
+    
+
+    def _analyze_completeness(self, csv_data: list, headers: list) -> Dict[str, Any]:  
+     """Analyse de la complétude des données"""  
+     if not csv_data or not headers:  
+        return {'score': 0, 'missing_by_column': {}, 'total_missing': 0}  
+      
+     total_cells = len(csv_data) * len(headers)  
+     missing_cells = 0  
+     missing_by_column = {}  
+      
+     for header in headers:  
+        column_missing = 0  
+        for row in csv_data:  
+            value = row.get(header, '')  
+            # Considérer comme manquant : None, chaîne vide, ou espaces uniquement  
+            if value is None or str(value).strip() == '' or str(value).lower() in ['nan', 'null', 'none']:  
+                column_missing += 1  
+                missing_cells += 1  
+          
+        missing_by_column[header] = {  
+            'missing_count': column_missing,  
+            'total_count': len(csv_data),  
+            'completeness_rate': ((len(csv_data) - column_missing) / len(csv_data)) * 100 if len(csv_data) > 0 else 0,  
+            'missing_percentage': (column_missing / len(csv_data)) * 100 if len(csv_data) > 0 else 0  
+        }  
+      
+     overall_score = ((total_cells - missing_cells) / total_cells) * 100 if total_cells > 0 else 0  
+      
+     return {  
+        'score': round(overall_score, 1),  
+        'missing_by_column': missing_by_column,  
+        'total_missing': missing_cells,  
+        'total_cells': total_cells  
+     }
+      
+    async def _generate_ai_quality_recommendations(self, csv_data: list, headers: list) -> List[Dict]:  
+        """Génération de recommandations IA pour la qualité"""  
+        prompt = f"""  
+        Analysez la qualité des données suivantes et proposez des corrections spécifiques:  
+          
+        Colonnes: {headers}  
+        Nombre de lignes: {len(csv_data)}  
+          
+        Répondez en format JSON avec la structure:  
+        [{{  
+            "column": "nom_colonne",  
+            "issue_type": "completeness|consistency|duplicate",  
+            "description": "description du problème",  
+            "auto_fix_suggestion": "suggestion de correction",  
+            "priority": 8,  
+            "confidence": 0.9  
+        }}]  
+        """  
+          
+        try:  
+            response = await self.gemini_client.generate_recommendations(prompt)  
+            # Parser la réponse JSON  
+            import json  
+            json_start = response.find('[')  
+            json_end = response.rfind(']') + 1  
+            if json_start != -1 and json_end != -1:  
+                json_str = response[json_start:json_end]  
+                return json.loads(json_str)  
+            return []  
+        except Exception as e:  
+            print(f"Erreur lors de la génération des recommandations IA: {e}")  
+            return []
+
+    def _analyze_consistency(self, csv_data: list, headers: list) -> Dict[str, Any]:  
+     """Analyse de cohérence générale des données"""  
+     if not csv_data or not headers:  
+        return {'issues_by_column': {}, 'total_issues': 0}  
+      
+     consistency_issues = {}  
+     total_issues = 0  
+      
+     for header in headers:  
+        issues = []  
+          
+        # 1. Analyse des patterns automatiques  
+        pattern_issues = self._analyze_column_patterns(csv_data, header)  
+        issues.extend(pattern_issues)  
+          
+        # 2. Analyse statistique des valeurs aberrantes  
+        outlier_issues = self._detect_statistical_outliers(csv_data, header)  
+        issues.extend(outlier_issues)  
+          
+        # 3. Analyse de la cohérence des types de données  
+        type_issues = self._analyze_data_type_consistency(csv_data, header)  
+        issues.extend(type_issues)  
+          
+        # 4. Analyse des formats spécifiques (votre code existant)  
+        specific_issues = self._analyze_specific_formats(csv_data, header)  
+        issues.extend(specific_issues)  
+          
+        if issues:  
+            consistency_issues[header] = issues  
+            total_issues += sum(issue.get('count', 0) for issue in issues)  
+      
+     return {  
+        'issues_by_column': consistency_issues,  
+        'total_issues': total_issues  
+     }  
+  
+    def _analyze_column_patterns(self, csv_data: list, column: str) -> list:  
+     """Analyse automatique des patterns dans une colonne"""  
+     import re  
+     from collections import Counter  
+      
+     issues = []  
+     values = [str(row.get(column, '')).strip() for row in csv_data if row.get(column)]  
+      
+     if not values:  
+        return issues  
+      
+     # Analyser les patterns de longueur  
+     lengths = [len(v) for v in values]  
+     length_counter = Counter(lengths)  
+     most_common_length = length_counter.most_common(1)[0][0]  
+      
+     # Détecter les valeurs avec des longueurs inhabituelles  
+     unusual_lengths = []  
+     for idx, row in enumerate(csv_data):  
+        value = str(row.get(column, '')).strip()  
+        if value and abs(len(value) - most_common_length) > 3:  # Seuil configurable  
+            unusual_lengths.append(idx)  
+      
+     if unusual_lengths and len(unusual_lengths) < len(values) * 0.1:  # Moins de 10% des valeurs  
+        issues.append({  
+            'type': 'unusual_length',  
+            'count': len(unusual_lengths),  
+            'rows': unusual_lengths,  
+            'description': f"Longueur inhabituelle détectée dans {len(unusual_lengths)} valeurs (longueur attendue: ~{most_common_length})"  
+        })  
+      
+     # Analyser les patterns de caractères  
+     char_patterns = []  
+     for value in values[:100]:  # Échantillon pour performance  
+        pattern = re.sub(r'[a-zA-Z]', 'A', value)  
+        pattern = re.sub(r'[0-9]', '9', pattern)  
+        char_patterns.append(pattern)  
+      
+     pattern_counter = Counter(char_patterns)  
+     most_common_pattern = pattern_counter.most_common(1)[0][0] if pattern_counter else None  
+      
+     if most_common_pattern:  
+        inconsistent_patterns = []  
+        for idx, row in enumerate(csv_data):  
+            value = str(row.get(column, '')).strip()  
+            if value:  
+                current_pattern = re.sub(r'[a-zA-Z]', 'A', value)  
+                current_pattern = re.sub(r'[0-9]', '9', current_pattern)  
+                if current_pattern != most_common_pattern and len(pattern_counter) > 1:  
+                    inconsistent_patterns.append(idx)  
+          
+        if inconsistent_patterns and len(inconsistent_patterns) < len(values) * 0.2:  
+            issues.append({  
+                'type': 'inconsistent_pattern',  
+                'count': len(inconsistent_patterns),  
+                'rows': inconsistent_patterns,  
+                'description': f"Pattern incohérent détecté (pattern attendu: {most_common_pattern})"  
+            })  
+      
+     return issues  
+  
+    def _detect_statistical_outliers(self, csv_data: list, column: str) -> list:  
+     """Détection des valeurs aberrantes statistiques"""  
+     import numpy as np  
+      
+     issues = []  
+     numeric_values = []  
+     numeric_indices = []  
+      
+     # Extraire les valeurs numériques  
+     for idx, row in enumerate(csv_data):  
+        value = row.get(column, '')  
+        try:  
+            numeric_val = float(str(value).replace(',', '.'))  
+            numeric_values.append(numeric_val)  
+            numeric_indices.append(idx)  
+        except (ValueError, TypeError):  
+            continue  
+      
+     if len(numeric_values) < 10:  # Pas assez de données numériques  
+        return issues  
+      
+     # Méthode IQR pour détecter les outliers  
+     q1 = np.percentile(numeric_values, 25)  
+     q3 = np.percentile(numeric_values, 75)  
+     iqr = q3 - q1  
+     lower_bound = q1 - 1.5 * iqr  
+     upper_bound = q3 + 1.5 * iqr  
+      
+     outlier_indices = []  
+     for i, value in enumerate(numeric_values):  
+        if value < lower_bound or value > upper_bound:  
+            outlier_indices.append(numeric_indices[i])  
+      
+     if outlier_indices:  
+        issues.append({  
+            'type': 'statistical_outlier',  
+            'count': len(outlier_indices),  
+            'rows': outlier_indices,  
+            'description': f"Valeurs aberrantes détectées (hors de l'intervalle [{lower_bound:.2f}, {upper_bound:.2f}])"  
+        })  
+      
+     return issues  
+  
+    def _analyze_data_type_consistency(self, csv_data: list, column: str) -> list:  
+     """Analyse de la cohérence des types de données"""  
+     from collections import Counter  
+      
+     issues = []  
+     type_counts = Counter()  
+      
+     for row in csv_data:  
+        value = row.get(column, '')  
+        if value is None or str(value).strip() == '':  
+            continue  
+              
+        value_str = str(value).strip()  
+          
+        # Classifier le type de données  
+        if value_str.isdigit():  
+            type_counts['integer'] += 1  
+        elif self._is_float(value_str):  
+            type_counts['float'] += 1  
+        elif self._is_date_like(value_str):  
+            type_counts['date'] += 1  
+        elif value_str.isalpha():  
+            type_counts['text'] += 1  
+        elif '@' in value_str:  
+            type_counts['email'] += 1  
+        else:  
+            type_counts['mixed'] += 1  
+      
+     # Si plus de 2 types différents avec des proportions significatives  
+     if len(type_counts) > 2:  
+        minority_types = []  
+        total_values = sum(type_counts.values())  
+          
+        for data_type, count in type_counts.items():  
+            if count / total_values < 0.1:  # Moins de 10%  
+                minority_types.append(data_type)  
+          
+        if minority_types:  
+            # Trouver les lignes avec des types minoritaires  
+            inconsistent_rows = []  
+            for idx, row in enumerate(csv_data):  
+                value = str(row.get(column, '')).strip()  
+                if value and self._get_value_type(value) in minority_types:  
+                    inconsistent_rows.append(idx)  
+              
+            if inconsistent_rows:  
+                issues.append({  
+                    'type': 'mixed_data_types',  
+                    'count': len(inconsistent_rows),  
+                    'rows': inconsistent_rows,  
+                    'description': f"Types de données incohérents détectés: {', '.join(minority_types)}"  
+                })  
+      
+     return issues  
+  
+    def _analyze_specific_formats(self, csv_data: list, column: str) -> list:  
+     """Votre analyse spécifique existante (emails, téléphones, etc.)"""  
+     issues = []  
+     header_lower = column.lower()  
+      
+    # Votre code existant pour les validations spécifiques  
+     if any(keyword in header_lower for keyword in ['email', 'mail', 'e-mail', 'courriel']):  
+        invalid_emails = self._validate_email_format(csv_data, column)  
+        if invalid_emails:  
+            issues.append({  
+                'type': 'invalid_email',  
+                'count': len(invalid_emails),  
+                'rows': invalid_emails,  
+                'description': f"Format d'email invalide dans {len(invalid_emails)} lignes"  
+            })  
+      
+    # ... reste de votre code existant pour téléphones, dates, etc.  
+      
+     return issues  
+  
+    def _is_float(self, value: str) -> bool:  
+     """Vérifie si une valeur est un nombre décimal"""  
+     try:  
+        float(value.replace(',', '.'))  
+        return '.' in value or ',' in value  
+     except ValueError:  
+        return False  
+  
+    def _is_date_like(self, value: str) -> bool:  
+     """Vérifie si une valeur ressemble à une date"""  
+     import re  
+     date_patterns = [  
+        r'\d{4}-\d{2}-\d{2}',  
+        r'\d{2}/\d{2}/\d{4}',  
+        r'\d{2}-\d{2}-\d{4}'  
+     ]  
+     return any(re.match(pattern, value) for pattern in date_patterns)  
+  
+    def _get_value_type(self, value: str) -> str:  
+     """Détermine le type d'une valeur"""  
+     if value.isdigit():  
+        return 'integer'  
+     elif self._is_float(value):  
+        return 'float'  
+     elif self._is_date_like(value):  
+        return 'date'  
+     elif value.isalpha():  
+        return 'text'  
+     elif '@' in value:  
+        return 'email'  
+     else:  
+        return 'mixed'
+
+

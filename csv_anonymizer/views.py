@@ -376,3 +376,118 @@ class StatisticsView(View):
             'moyen': moyen_percent,      
             'faible': max(0, faible_percent)  # S'assurer que ce n'est pas négatif      
         }
+    
+
+
+class RemoveDuplicatesView(View):  
+    def post(self, request):  
+        if not request.session.get("user_email"):  
+            return JsonResponse({'error': 'Non autorisé'}, status=401)  
+          
+        user_email = request.session.get("user_email")  
+        user = users.find_one({'email': user_email})  
+          
+        if user and user.get('role') != 'admin':  
+            return JsonResponse({'error': 'Accès refusé'}, status=403)  
+          
+        try:  
+            import json  
+            data = json.loads(request.body)  
+            job_id = data.get('job_id')  
+              
+            if not job_id:  
+                return JsonResponse({'error': 'job_id manquant'}, status=400)  
+              
+            # Récupérer les données depuis MongoDB  
+            job_data = collection.find_one({'job_id': str(job_id)})  
+            if not job_data:  
+                return JsonResponse({'error': 'Données non trouvées'}, status=404)  
+              
+            # Convertir en DataFrame et supprimer les doublons  
+            df = pd.DataFrame(job_data['data'])  
+            df_cleaned = df.drop_duplicates()  
+              
+            # Sauvegarder les données nettoyées  
+            cleaned_data = df_cleaned.to_dict('records')  
+            collection.update_one(  
+                {'job_id': str(job_id)},  
+                {'$set': {'data': cleaned_data}}  
+            )  
+              
+            return JsonResponse({  
+                'success': True,  
+                'message': f'{len(df) - len(df_cleaned)} doublons supprimés',  
+                'rows_removed': len(df) - len(df_cleaned)  
+            })  
+              
+        except Exception as e:  
+            return JsonResponse({'error': str(e)}, status=500)  
+  
+class RemoveMissingValuesView(View):  
+    def post(self, request):  
+        if not request.session.get("user_email"):  
+            return JsonResponse({'error': 'Non autorisé'}, status=401)  
+          
+        user_email = request.session.get("user_email")  
+        user = users.find_one({'email': user_email})  
+          
+        if user and user.get('role') != 'admin':  
+            return JsonResponse({'error': 'Accès refusé'}, status=403)  
+          
+        try:  
+            import json  
+            data = json.loads(request.body)  
+            job_id = data.get('job_id')  
+              
+            if not job_id:  
+                return JsonResponse({'error': 'job_id manquant'}, status=400)  
+              
+            # Récupérer les données depuis MongoDB  
+            job_data = collection.find_one({'job_id': str(job_id)})  
+            if not job_data:  
+                return JsonResponse({'error': 'Données non trouvées'}, status=404)  
+              
+            # Convertir en DataFrame et supprimer les valeurs manquantes  
+            df = pd.DataFrame(job_data['data'])  
+            df_cleaned = df.dropna()  
+              
+            # Sauvegarder les données nettoyées  
+            cleaned_data = df_cleaned.to_dict('records')  
+            collection.update_one(  
+                {'job_id': str(job_id)},  
+                {'$set': {'data': cleaned_data}}  
+            )  
+              
+            return JsonResponse({  
+                'success': True,  
+                'message': f'{len(df) - len(df_cleaned)} lignes avec valeurs manquantes supprimées',  
+                'rows_removed': len(df) - len(df_cleaned)  
+            })  
+              
+        except Exception as e:  
+            return JsonResponse({'error': str(e)}, status=500)
+        
+
+
+class DataStewardDashboardView(View):  
+    def get(self, request):  
+        if not request.session.get("user_email"):  
+            return redirect('login_form')  
+          
+        user_email = request.session.get("user_email")  
+        user = users.find_one({'email': user_email})  
+          
+        # Vérifier que c'est un data steward  
+        if not user or user.get('role') != 'user':  
+            return redirect('authapp:home')  
+          
+        # Récupérer les jobs récents de l'utilisateur  
+        recent_jobs = list(main_db.anonymization_jobs.find({  
+            'user_email': user_email,  
+            'status': 'completed'  
+        }).sort('upload_date', -1).limit(10))  
+          
+        return render(request, 'csv_anonymizer/datasteward_dashboard.html', {  
+            'recent_jobs': recent_jobs,  
+            'user': user  
+        })

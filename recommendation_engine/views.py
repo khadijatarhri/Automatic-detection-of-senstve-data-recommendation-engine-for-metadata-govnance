@@ -1,10 +1,11 @@
 from django.shortcuts import render
-
+import asyncio
 # Create your views here.
 from django.shortcuts import render, redirect  
 from django.http import JsonResponse  
 from django.views import View  
-from .MoteurDeRecommandationAvecDeepSeekML import IntelligentRecommendationEngine
+
+from .MoteurDeRecommandationAvecDeepSeekML import IntelligentRecommendationEngine , GeminiClient , DataQualityEngine
 from .models import RecommendationStorage  
 import os  
 from pymongo import MongoClient  
@@ -124,6 +125,20 @@ class MetadataView(View):
   def get(self, request, job_id):  
         if not request.session.get("user_email"):  
             return redirect('login_form')  
+        
+
+
+        # Vérification du rôle data steward  
+        user_email = request.session.get("user_email")  
+        from pymongo import MongoClient  
+        client = MongoClient('mongodb://mongodb:27017/')  
+        db = client['csv_anonymizer_db']  
+        users = db['users']  
+        user = users.find_one({'email': user_email})  
+          
+        # Autoriser seulement les data stewards (qui ont le rôle 'user' mais s'affichent comme Data Steward)  
+        if not user or user.get('role') != 'user':  
+            return redirect('authapp:home') 
           
         # Récupérer les métadonnées enrichies depuis semantic_engine  
         metadata = self._get_enriched_metadata(job_id)  
@@ -401,3 +416,105 @@ class ValidationWorkflowView(View):
               
         except Exception as e:  
             return JsonResponse({'error': str(e)}, status=500)
+
+
+class DataQualityView(View):  
+    def get(self, request, job_id):    
+        if not request.session.get("user_email"):    
+            return redirect('login_form')    
+          
+        # Vérification du rôle data steward  
+        user_email = request.session.get("user_email")  
+        from pymongo import MongoClient  
+        client = MongoClient('mongodb://mongodb:27017/')  
+        db = client['csv_anonymizer_db']  
+        users = db['users']  
+        user = users.find_one({'email': user_email})  
+          
+        # Autoriser seulement les data stewards  
+        if not user or user.get('role') != 'user':  
+            return redirect('authapp:home')  
+
+
+        # Récupérer les données depuis MongoDB  
+        csv_db = client['csv_anonymizer_db']  
+        collection = csv_db['csv_data']  
+          
+        job_data = collection.find_one({'job_id': str(job_id)})  
+        if not job_data:  
+            return JsonResponse({'error': 'Données non trouvées'}, status=404)  
+          
+        headers = job_data.get('headers', [])  
+        csv_data = job_data.get('data', [])  
+            
+        # Utiliser votre DataQualityEngine existante  
+        gemini_api_key = os.getenv('GEMINI_API_KEY')    
+          
+        async def analyze_quality():    
+            async with GeminiClient(gemini_api_key) as gemini_client:    
+                quality_engine = DataQualityEngine(gemini_client)  
+                return await quality_engine.analyze_data_quality(csv_data, headers)  # Ajout d'await  
+            
+        quality_analysis = asyncio.run(analyze_quality())    
+            
+        return render(request, 'recommendation_engine/data_quality.html', {    
+            'job_id': job_id,    
+            'quality_analysis': quality_analysis    
+        })
+
+
+    def post(self, request, job_id):  
+        """Appliquer les corrections de qualité"""  
+        action = request.POST.get('action')  
+          
+        if action == 'remove_duplicates':  
+            return self._remove_duplicates(request, job_id)  
+        elif action == 'fix_inconsistencies':  
+            return self._fix_inconsistencies(request, job_id)  
+        elif action == 'fill_missing_values':  
+            return self._fill_missing_values(request, job_id)  
+          
+        return JsonResponse({'error': 'Action non reconnue'}, status=400)  
+      
+    def _remove_duplicates(self, request, job_id):  
+        """Suppression des doublons avec confirmation"""  
+        duplicate_strategy = request.POST.get('duplicate_strategy', 'keep_first')  
+        columns_to_check = request.POST.getlist('columns_to_check')  
+          
+        # Récupérer les données  
+        client = MongoClient('mongodb://mongodb:27017/')  
+        csv_db = client['csv_anonymizer_db']  
+        collection = csv_db['csv_data']  
+          
+        job_data = collection.find_one({'job_id': str(job_id)})  
+        if not job_data:  
+            return JsonResponse({'error': 'Données non trouvées'}, status=404)  
+          
+        # Appliquer la suppression des doublons  
+        df = pd.DataFrame(job_data['data'])  
+        original_count = len(df)  
+          
+        if columns_to_check:  
+            df_cleaned = df.drop_duplicates(subset=columns_to_check, keep=duplicate_strategy)  
+        else:  
+            df_cleaned = df.drop_duplicates(keep=duplicate_strategy)  
+          
+        removed_count = original_count - len(df_cleaned)  
+          
+        # Sauvegarder les données nettoyées  
+        job_data['data'] = df_cleaned.to_dict('records')  
+        job_data['quality_actions'] = job_data.get('quality_actions', [])  
+        job_data['quality_actions'].append({  
+            'action': 'remove_duplicates',  
+            'timestamp': datetime.now(),  
+            'removed_count': removed_count,  
+            'strategy': duplicate_strategy  
+        })  
+          
+        collection.replace_one({'job_id': str(job_id)}, job_data)  
+          
+        return JsonResponse({  
+            'success': True,  
+            'removed_count': removed_count,  
+            'remaining_count': len(df_cleaned)  
+        })

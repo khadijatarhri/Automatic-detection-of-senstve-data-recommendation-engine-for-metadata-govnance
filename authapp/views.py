@@ -96,8 +96,16 @@ def home_view(request):
         for job in completed_jobs:  
             job['id'] = str(job['_id'])  # Créer un nouveau champ 'id'  
           
-        return render(request, "authapp/user_home.html", {  
-            'anonymized_files': completed_jobs  
+
+        latest_job = None  
+        if completed_jobs:  
+             latest_job = completed_jobs[0]
+
+        return render(request, "authapp/user_home.html", {    
+           'anonymized_files': completed_jobs,  
+           'user_role': current_user.get('role') if current_user else 'user'  ,
+            'latest_job_id': str(latest_job['_id']) if latest_job else None  
+
         })
 
 # --- Upload API ---
