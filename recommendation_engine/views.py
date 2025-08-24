@@ -432,8 +432,8 @@ class DataQualityView(View):
         user = users.find_one({'email': user_email})  
           
         # Autoriser seulement les data stewards  
-        if not user or user.get('role') != 'user':  
-            return redirect('authapp:home')  
+        #if not user or user.get('role') != 'user':  
+        #    return redirect('authapp:home')  
 
 
         # Récupérer les données depuis MongoDB  
