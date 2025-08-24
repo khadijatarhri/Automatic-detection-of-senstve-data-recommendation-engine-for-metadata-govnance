@@ -78,13 +78,18 @@ class UploadCSVView(View):
                 row_data[header] = row[i]        
             csv_data.append(row_data)        
         
-        # Utiliser PyMongo directement pour créer le job        
-        job_data = {          
-            'user_email': request.session.get('user_email'),          
-            'original_filename': csv_file.name,        
-            'upload_date': datetime.datetime.now(),          
-            'status': 'pending'          
-        }          
+        # Récupérer tous les data stewards  
+        data_stewards = list(users.find({'role': 'user'}))  
+        authorized_emails = [ds['email'] for ds in data_stewards]  
+  
+        job_data = {            
+        'user_email': request.session.get('user_email'),            
+        'original_filename': csv_file.name,          
+        'upload_date': datetime.datetime.now(),            
+        'status': 'pending',  
+        'shared_with_data_stewards': True,  
+        'authorized_users': authorized_emails  # Partager avec tous les data stewards  
+        }        
         result = main_db.anonymization_jobs.insert_one(job_data)          
         job_id = result.inserted_id        
         
@@ -265,8 +270,6 @@ class ProcessCSVView(View):
            'anonymized_date': datetime.datetime.now()      
         })      
       
-        # Puis nettoyer les données temporaires      
-        collection.delete_one({'job_id': str(object_id)})       
                 
         return response      
       

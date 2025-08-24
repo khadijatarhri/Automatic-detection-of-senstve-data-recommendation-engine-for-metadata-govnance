@@ -20,9 +20,18 @@
                     
                       
                     <!-- Liens conditionnels avec job_id -->  
-                    {% if latest_job_id %}  
+                    {% if job_id %}  
+                   
                     <li>  
-                        <a href="{% url 'recommendation_engine:metadata' latest_job_id %}"  
+                        <a href="{% url 'authapp:download_file' job_id %}"  
+                           class="block py-2 px-3 text-gray-900 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:border-0 md:hover:text-blue-700 md:p-0 dark:text-white md:dark:hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent">  
+                            <i class="fas fa-download mr-2"></i>  
+                            Fichier anonymisé  
+                        </a>  
+                    </li>
+
+                    <li>  
+                        <a href="{% url 'recommendation_engine:metadata' job_id %}"  
                            class="block py-2 px-3 text-gray-900 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:border-0 md:hover:text-blue-700 md:p-0 dark:text-white md:dark:hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent">  
                             <i class="fas fa-tags mr-2"></i>  
                             Métadonnées Enrichies  
@@ -30,7 +39,7 @@
                     </li>  
                       
                     <li>  
-                        <a href="{% url 'recommendation_engine:data_quality' latest_job_id %}"  
+                        <a href="{% url 'recommendation_engine:data_quality' job_id %}"  
                            class="block py-2 px-3 text-gray-900 rounded-sm hover:bg-gray-100 md:hover:bg-transparent md:border-0 md:hover:text-blue-700 md:p-0 dark:text-white md:dark:hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent">  
                             <i class="fas fa-chart-line mr-2"></i>  
                             Qualité des Données  

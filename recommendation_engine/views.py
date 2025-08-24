@@ -2,9 +2,8 @@ from django.shortcuts import render
 import asyncio
 # Create your views here.
 from django.shortcuts import render, redirect  
-from django.http import JsonResponse  
+from django.http import HttpResponse, JsonResponse
 from django.views import View  
-
 from .MoteurDeRecommandationAvecDeepSeekML import IntelligentRecommendationEngine , GeminiClient , DataQualityEngine
 from .models import RecommendationStorage  
 import os  
@@ -16,7 +15,7 @@ from db_connections import db as main_db
 import pandas as pd  
 from datetime import datetime
 
-from atlas_integration import GlossarySyncService  
+from AtlasAPI.atlas_integration import GlossarySyncService  
   
 class GlossarySyncView(View):  
     def post(self, request):  
@@ -122,39 +121,32 @@ class RecommendationView(View):
 
 
 class MetadataView(View):  
-  def get(self, request, job_id):  
-        if not request.session.get("user_email"):  
-            return redirect('login_form')  
-        
-
-
-        # Vérification du rôle data steward  
-        user_email = request.session.get("user_email")  
-        from pymongo import MongoClient  
-        client = MongoClient('mongodb://mongodb:27017/')  
-        db = client['csv_anonymizer_db']  
-        users = db['users']  
-        user = users.find_one({'email': user_email})  
-          
-        # Autoriser seulement les data stewards (qui ont le rôle 'user' mais s'affichent comme Data Steward)  
-        if not user or user.get('role') != 'user':  
-            return redirect('authapp:home') 
-          
-        # Récupérer les métadonnées enrichies depuis semantic_engine  
-        metadata = self._get_enriched_metadata(job_id)  
-          
-        return render(request, 'recommendation_engine/metadata.html', {  
-            'job_id': job_id,  
-            'metadata': metadata  
-        })  
+  def get(self, request, job_id):    
+    if not request.session.get("user_email"):    
+        return redirect('login_form')    
       
+    user_email = request.session.get("user_email")  
+    users=main_db["users"]  
+    user = users.find_one({'email': user_email})    
+      
+    # Permettre l'accès aux data stewards pour tous les jobs  
+    if not user or user.get('role') != 'user':    
+        return redirect('authapp:home')   
+      
+    # Pas de vérification de propriétaire - tous les data stewards peuvent voir tous les jobs  
+    metadata = self._get_enriched_metadata(job_id)    
+    return render(request, 'recommendation_engine/metadata.html', {    
+        'job_id': job_id,    
+        'metadata': metadata
+    })
   def _get_enriched_metadata(self, job_id):  
     """Récupère et génère les métadonnées enrichies groupées par colonne"""  
+
     try:  
         # Connexion à la bonne base de données  
         client = MongoClient('mongodb://mongodb:27017/')  
         csv_db = client['csv_anonymizer_db']  
-        collection = csv_db['csv_data']  
+        collection = csv_db['anonymized_files']  
           
         # Connexion à la base de données des annotations  
         metadata_db = client['metadata_validation_db']  
@@ -169,9 +161,15 @@ class MetadataView(View):
         # Récupérer les données CSV originales  
         job_data = collection.find_one({'job_id': str(job_id)})  
           
+        print(f"DEBUG: Recherche des données pour job_id: {job_id}")  
+      
+        # Après récupération des données  
         if not job_data:  
-            print(f"Aucune donnée trouvée pour job_id: {job_id}")  
+            print(f"DEBUG: Aucune donnée trouvée pour job_id: {job_id}")  
             return []  
+      
+        print(f"DEBUG: Données trouvées - headers: {job_data.get('headers', [])}")  
+        print(f"DEBUG: Nombre de lignes: {len(job_data.get('data', []))}")
           
         # Récupérer le nom du fichier original  
         main_db_client = MongoClient('mongodb://mongodb:27017/')  
@@ -187,8 +185,8 @@ class MetadataView(View):
         # Grouper les entités par colonne  
         column_metadata = {}  
         headers = job_data.get('headers', [])  
-        csv_data = job_data.get('data', [])  
-          
+        csv_data = job_data.get('anonymized_data', [])  
+
         print(f"Analyse de {len(csv_data)} lignes de données par colonne...")  
           
         # Analyser chaque cellule du DataFrame et grouper par colonne  
@@ -432,8 +430,8 @@ class DataQualityView(View):
         user = users.find_one({'email': user_email})  
           
         # Autoriser seulement les data stewards  
-        #if not user or user.get('role') != 'user':  
-        #    return redirect('authapp:home')  
+        if not user or user.get('role') != 'user':  
+            return redirect('authapp:home')  
 
 
         # Récupérer les données depuis MongoDB  

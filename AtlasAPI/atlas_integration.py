@@ -4,7 +4,7 @@ from datetime import datetime
 from pyapacheatlas.auth import BasicAuthentication  
 from pyapacheatlas.core import AtlasClient, AtlasEntity  
 from pymongo import MongoClient  
-from glossary_manager import GlossaryManager, GlossaryTermExtractor  
+from .glossary_manager import GlossaryManager, GlossaryTermExtractor  
   
 class AtlasTermFormatter:  
     """Formate les termes pour Atlas avec les classes personnalisées"""  

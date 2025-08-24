@@ -232,3 +232,5 @@ def download_file(request, job_id):
           
     except Exception as e:  
         return HttpResponse(f"Erreur: {str(e)}", status=500)
+
+
