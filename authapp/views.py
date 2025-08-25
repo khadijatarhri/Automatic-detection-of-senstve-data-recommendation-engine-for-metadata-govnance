@@ -104,7 +104,7 @@ def home_view(request):
         return render(request, "authapp/user_home.html", {    
            'anonymized_files': completed_jobs,  
            'user_role': current_user.get('role') if current_user else 'user'  ,
-            'latest_job_id': str(latest_job['_id']) if latest_job else None  
+           'latest_job_id': str(latest_job['_id']) if latest_job else None  
 
         })
 

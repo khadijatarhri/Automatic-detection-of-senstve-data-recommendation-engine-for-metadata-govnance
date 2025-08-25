@@ -44,8 +44,9 @@
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Types d'Entités</th>  
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Échantillons</th>  
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Entités</th>  
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Confiance Moyenne</th>  
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Statut Validation</th>  
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Catégorie RGPD Recommandée</th>  
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Niveau de Sensibilité</th>  
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Politique Ranger</th>                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Statut Validation</th>  
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>  
                         </tr>  
                     </thead>  
@@ -73,14 +74,21 @@
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">  
                                 {{ column.total_entities }}  
                             </td>  
-                            <td class="px-6 py-4 whitespace-nowrap">  
-                                <div class="flex items-center">  
-                                    <div class="w-16 bg-gray-200 rounded-full h-2 mr-2">  
-                                        <div class="bg-blue-600 h-2 rounded-full" style="width: {{ column.avg_confidence|floatformat:0 }}%"></div>  
-                                    </div>  
-                                    <span class="text-sm text-gray-600">{{ column.avg_confidence|floatformat:1 }}%</span>  
-                                </div>  
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">  
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">  
+                                    {{ column.recommended_rgpd_category|default:"Non défini" }}  
+                                </span>  
                             </td>  
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">  
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">  
+                                    {{ column.recommended_sensitivity_level|default:"Non défini" }}  
+                                </span>  
+                            </td>  
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">  
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">  
+                                    {{ column.recommended_ranger_policy|default:"Non défini" }}  
+                                </span>  
+                            </td>
                             <td class="px-6 py-4 whitespace-nowrap">  
                                 <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium   
                                       {% if column.validation_status == 'validated' %}bg-green-100 text-green-800  
@@ -93,10 +101,13 @@
                                 </span>  
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">  
-                                <button onclick="openColumnValidationModal('{{ column.column_name }}', {{ column.entity_types|safe }})"  
-                                        class="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">  
+                                <button onclick="openColumnValidationModal('{{ column.column_name }}', {{ column.entity_types|safe }}, {  
+                                    rgpd_category: '{{ column.recommended_rgpd_category|default:"" }}',  
+                                    sensitivity_level: '{{ column.recommended_sensitivity_level|default:"" }}',  
+                                    ranger_policy: '{{ column.recommended_ranger_policy|default:"" }}'  
+                                })" class="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">  
                                     <i class="fas fa-edit mr-1"></i>Annoter Colonne  
-                                </button>  
+                                </button> 
                             </td>  
                         </tr>  
                         {% endfor %}  
@@ -211,7 +222,7 @@
   <script>  
     let currentColumnName = null;  
       
-    function openColumnValidationModal(columnName, entityTypes) {  
+    function openColumnValidationModal(columnName, entityTypes, aiRecommendations) {  
     currentColumnName = columnName;  
     document.getElementById('modalColumnName').textContent = columnName;  
     document.getElementById('modalEntityTypes').textContent = Array.from(entityTypes).join(', ');  
@@ -226,21 +237,21 @@
         entityTypeSelect.appendChild(option);  
     });  
       
-    // Vérifier que tous les éléments requis existent  
-    const requiredElements = [  
-        'columnEntityType',  
-        'columnValidationStatus',   
-        'columnRgpdCategory',  
-        'columnAnonymizationMethod',  
-        'columnAnnotationComments'  
-    ];  
-      
-    for (const elementId of requiredElements) {  
-        const element = document.getElementById(elementId);  
-        if (!element) {  
-            console.error(`Élément manquant lors de l'ouverture du modal: ${elementId}`);  
-            alert(`Erreur: élément ${elementId} non trouvé dans le modal`);  
-            return;  
+    // Pré-remplir avec les recommandations IA si disponibles  
+    if (aiRecommendations) {  
+        // Catégorie RGPD recommandée  
+        if (aiRecommendations.rgpd_category) {  
+            document.getElementById('columnRgpdCategory').value = aiRecommendations.rgpd_category;  
+        }  
+          
+        // Niveau de sensibilité recommandé  
+        if (aiRecommendations.sensitivity_level) {  
+            document.getElementById('columnSensitivityLevel').value = aiRecommendations.sensitivity_level;  
+        }  
+          
+        // Politique Ranger recommandée  
+        if (aiRecommendations.ranger_policy) {  
+            document.getElementById('columnAnonymizationMethod').value = aiRecommendations.ranger_policy;  
         }  
     }  
       
