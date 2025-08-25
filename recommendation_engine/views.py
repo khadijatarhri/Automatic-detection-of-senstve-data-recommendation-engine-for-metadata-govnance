@@ -280,108 +280,142 @@ class MetadataView(View):
             data['validation_status'] = validation_status  
             result.append(data)  
           
-        # NOUVEAU CODE : Récupérer les recommandations ML depuis MongoDB  
-        try:  
-            # Connexion à la base de recommandations MongoDB  
-            recommendations_db = client['recommendations_db']  
-              
-            # Récupérer les analyses de colonnes avec les recommandations ML  
-            column_analysis_collection = recommendations_db['column_analysis']  
-            ml_analysis_cursor = column_analysis_collection.find({'dataset_id': str(job_id)})  
-            ml_analysis = {doc['column_name']: doc for doc in ml_analysis_cursor}  
-              
-            # Récupérer les recommandations générées par Gemini  
-            recommendations_collection = recommendations_db['recommendations']  
-            gemini_recommendations_cursor = recommendations_collection.find({  
-                'dataset_id': str(job_id),  
-                'type': 'COLUMN_BASED'  
-            })  
-            gemini_recommendations = list(gemini_recommendations_cursor)  
-              
-            # Enrichir les métadonnées avec les recommandations ML+Gemini  
-            for data in result:  
-                column_name = data['column_name']  
-                  
-                # Ajouter les infos ML si disponibles  
-                if column_name in ml_analysis:  
-                    ml_data = ml_analysis[column_name]  
-                    data['cluster_id'] = ml_data.get('cluster_id')  
-                    data['sensitivity_score'] = ml_data.get('sensitivity_score')  
-                    data['anomaly_score'] = ml_data.get('anomaly_score')  
-                      
-                # Extraire les recommandations Gemini pour cette colonne  
-                column_recs = [rec for rec in gemini_recommendations   
-                              if column_name in str(rec.get('metadata', {}))]  
-                  
-                if column_recs:  
-                    # Parser les recommandations Gemini stockées  
-                    try:  
-                        rec_metadata = column_recs[0].get('metadata', {})  
-                        data['recommended_rgpd_category'] = rec_metadata.get('rgpd_category', 'Non défini')  
-                        data['recommended_sensitivity_level'] = rec_metadata.get('sensitivity_level', 'INTERNAL')  
-                        data['recommended_ranger_policy'] = rec_metadata.get('ranger_policy', 'ranger_masking_policy_person')  
-                    except:  
-                        # Fallback si parsing échoue  
-                        data['recommended_rgpd_category'] = 'Non défini'  
-                        data['recommended_sensitivity_level'] = 'INTERNAL'  
-                        data['recommended_ranger_policy'] = 'ranger_masking_policy_person'  
-                else:  
-                    # Valeurs par défaut si pas de recommandations  
-                    data['recommended_rgpd_category'] = 'Non défini'  
-                    data['recommended_sensitivity_level'] = 'INTERNAL'  
-                    data['recommended_ranger_policy'] = 'ranger_masking_policy_person'  
-                      
-        except Exception as e:  
-            print(f"Erreur récupération recommandations ML depuis MongoDB: {e}")  
-            # Fallback sur mapping simple si échec  
-            for data in result:  
-                data['recommended_rgpd_category'] = self._map_rgpd_from_entities(data['entity_types'])  
-                data['recommended_sensitivity_level'] = self._map_sensitivity_from_entities(data['entity_types'])  
-                data['recommended_ranger_policy'] = self._map_ranger_from_entities(data['entity_types'])  
-          
-        print(f"Métadonnées enrichies générées: {len(result)} colonnes analysées")  
+            
+        # NOUVEAU CODE : Récupérer les recommandations ML depuis MongoDB    
+        try:    
+          # Connexion à la base de recommandations MongoDB    
+           recommendations_db = client['recommendations_db']    
+        
+           # Récupérer les analyses de colonnes avec les recommandations ML    
+           column_analysis_collection = recommendations_db['column_analysis']    
+           ml_analysis_cursor = column_analysis_collection.find({'dataset_id': str(job_id)})    
+           ml_analysis = {doc['column_name']: doc for doc in ml_analysis_cursor}    
+        
+          # Récupérer les recommandations générées par Gemini    
+           recommendations_collection = recommendations_db['recommendations']    
+           gemini_recommendations_cursor = recommendations_collection.find({    
+             'dataset_id': str(job_id),    
+             'type': 'COLUMN_BASED'    
+           })    
+           gemini_recommendations = list(gemini_recommendations_cursor)    
+      
+           # Initialiser SemanticAnalyzer pour les mappings enrichis  
+           semantic_analyzer = SemanticAnalyzer("moroccan_entities_model_v2")  
+        
+           # Enrichir les métadonnées avec les recommandations ML+Gemini    
+           for data in result:    
+               column_name = data['column_name']    
+            
+               # Ajouter les infos ML si disponibles    
+               if column_name in ml_analysis:    
+                  ml_data = ml_analysis[column_name]    
+                  data['cluster_id'] = ml_data.get('cluster_id')    
+                  data['sensitivity_score'] = ml_data.get('sensitivity_score')    
+                  data['anomaly_score'] = ml_data.get('anomaly_score')    
+                
+        # Extraire les recommandations Gemini pour cette colonne    
+               column_recs = [rec for rec in gemini_recommendations     
+                      if column_name in str(rec.get('metadata', {}))]    
+            
+        # Utiliser les recommandations Gemini si disponibles, sinon SemanticAnalyzer  
+               if column_recs:    
+            # Parser les recommandations Gemini stockées    
+                try:    
+                 rec_metadata = column_recs[0].get('metadata', {})    
+                 data['recommended_rgpd_category'] = rec_metadata.get('rgpd_category', 'Non défini')    
+                 data['recommended_sensitivity_level'] = rec_metadata.get('sensitivity_level', 'INTERNAL')    
+                 data['recommended_ranger_policy'] = rec_metadata.get('ranger_policy', 'ranger_masking_policy_person')    
+                except:    
+                # Fallback vers SemanticAnalyzer si parsing Gemini échoue  
+                 data['recommended_rgpd_category'] = self._get_rgpd_from_semantic_analyzer(  
+                    data['entity_types'], semantic_analyzer  
+                 )  
+                 data['recommended_sensitivity_level'] = self._get_sensitivity_from_semantic_analyzer(  
+                    data['entity_types'], semantic_analyzer  
+                 )  
+                 data['recommended_ranger_policy'] = self._get_ranger_from_semantic_analyzer(  
+                    data['entity_types'], semantic_analyzer  
+                 )  
+               else:    
+            # Utiliser SemanticAnalyzer si pas de recommandations Gemini  
+                  data['recommended_rgpd_category'] = self._get_rgpd_from_semantic_analyzer(  
+                  data['entity_types'], semantic_analyzer  
+                  )  
+                  data['recommended_sensitivity_level'] = self._get_sensitivity_from_semantic_analyzer(  
+                  data['entity_types'], semantic_analyzer  
+                  )  
+                  data['recommended_ranger_policy'] = self._get_ranger_from_semantic_analyzer(  
+                  data['entity_types'], semantic_analyzer  
+                  )  
+                
+        except Exception as e:    
+         print(f"Erreur récupération recommandations ML depuis MongoDB: {e}")    
+      
+    # Initialiser SemanticAnalyzer pour les mappings enrichis    
+         semantic_analyzer = SemanticAnalyzer("moroccan_entities_model_v2")    
+  
+        for data in result:    
+        # Utiliser les mappings RGPD du SemanticAnalyzer    
+         data['recommended_rgpd_category'] = self._get_rgpd_from_semantic_analyzer(  
+            data['entity_types'], semantic_analyzer  
+         )    
+         data['recommended_sensitivity_level'] = self._get_sensitivity_from_semantic_analyzer(  
+            data['entity_types'], semantic_analyzer  
+         )    
+         data['recommended_ranger_policy'] = self._get_ranger_from_semantic_analyzer(  
+            data['entity_types'], semantic_analyzer  
+         )
         return result  
-          
-    except Exception as e:  
-        print(f"Erreur lors de la récupération des métadonnées: {e}")  
-        import traceback  
-        traceback.print_exc()  
+
+    except Exception as e :
         return []
 
- def _map_rgpd_from_entities(self, entity_types):  
-    """Mappe les types d'entités vers les catégories RGPD"""  
-    if 'PERSON' in entity_types:  
-        return 'Données d\'identification'  
-    elif any(entity in ['CREDIT_CARD', 'IBAN_CODE'] for entity in entity_types):  
-        return 'Données financières'  
-    elif any(entity in ['EMAIL_ADDRESS', 'PHONE_NUMBER'] for entity in entity_types):  
-        return 'Données de contact'  
-    else:  
-        return 'Données d\'identification'  
-  
- def _map_sensitivity_from_entities(self, entity_types):  
-    """Mappe les types d'entités vers les niveaux de sensibilité"""  
-    if any(entity in ['CREDIT_CARD', 'IBAN_CODE'] for entity in entity_types):  
-        return 'CONFIDENTIAL'  
-    elif any(entity in ['PERSON', 'EMAIL_ADDRESS', 'PHONE_NUMBER', 'ID_MAROC'] for entity in entity_types):  
-        return 'PERSONAL_DATA'  
-    else:  
-        return 'INTERNAL'  
-  
- def _map_ranger_from_entities(self, entity_types):  
-    """Mappe les types d'entités vers les politiques Ranger"""  
-    if 'PERSON' in entity_types:  
-        return 'ranger_masking_policy_person'  
-    elif any(entity in ['CREDIT_CARD', 'IBAN_CODE'] for entity in entity_types):  
-        return 'ranger_encryption_policy_financial'  
-    elif 'ID_MAROC' in entity_types:  
-        return 'ranger_hashing_policy_id'  
-    elif any(entity in ['EMAIL_ADDRESS', 'PHONE_NUMBER'] for entity in entity_types):  
-        return 'ranger_partial_masking_policy_phone'  
-    else:  
-        return 'ranger_masking_policy_person'
 
 
+
+
+
+
+        
+ def _get_rgpd_from_semantic_analyzer(self, entity_types, semantic_analyzer):  
+    """Utilise les mappings RGPD du SemanticAnalyzer"""  
+    for entity_type in entity_types:  
+        if entity_type in semantic_analyzer.rgpd_mapping:  
+            return semantic_analyzer.rgpd_mapping[entity_type]  
+    return 'Données d\'identification'  # fallback  
+  
+ def _get_sensitivity_from_semantic_analyzer(self, entity_types, semantic_analyzer):  
+    """Détermine la sensibilité via SemanticAnalyzer"""  
+    for entity_type in entity_types:  
+        # Utiliser la logique de determine_sensitivity_level  
+        if entity_type in ['PERSON', 'ID_MAROC']:  
+            return 'PERSONAL_DATA'  
+        elif entity_type in ['IBAN_CODE']:  
+            return 'RESTRICTED'  
+        elif entity_type in ['PHONE_NUMBER', 'EMAIL_ADDRESS', 'LOCATION']:  
+            return 'CONFIDENTIAL'  
+    return 'INTERNAL'  
+  
+ def _get_ranger_from_semantic_analyzer(self, entity_types, semantic_analyzer):  
+    """Utilise les méthodes d'anonymisation du SemanticAnalyzer"""  
+    for entity_type in entity_types:  
+        if entity_type in semantic_analyzer.anonymization_methods:  
+            method = semantic_analyzer.anonymization_methods[entity_type]  
+            # Mapper vers les politiques Ranger  
+            return self._map_anonymization_to_ranger_policy(method)  
+    return 'ranger_masking_policy_person'  
+  
+ def _map_anonymization_to_ranger_policy(self, anonymization_method):  
+    """Mappe les méthodes d'anonymisation vers les politiques Ranger"""  
+    mapping = {  
+        'pseudonymisation': 'ranger_masking_policy_person',  
+        'hachage': 'ranger_hashing_policy_id',  
+        'masquage partiel': 'ranger_partial_masking_policy_phone',  
+        'chiffrement': 'ranger_encryption_policy_financial',  
+        'généralisation': 'ranger_generalization_policy_location',  
+        'généralisation temporelle': 'ranger_temporal_generalization_policy'  
+    }  
+    return mapping.get(anonymization_method, 'ranger_masking_policy_person')
 
 
 
