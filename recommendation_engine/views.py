@@ -144,6 +144,7 @@ class MetadataView(View):
 
  def _get_enriched_metadata(self, job_id):  
     """Récupère et génère les métadonnées enrichies groupées par colonne"""  
+
   
     try:  
         # Connexion à la bonne base de données  
@@ -154,6 +155,8 @@ class MetadataView(View):
         # Connexion à la base de données des annotations  
         metadata_db = client['metadata_validation_db']  
         annotations_collection = metadata_db['column_annotations']  
+        enriched_metadata_collection = metadata_db['enriched_metadata']  
+
           
         # Récupérer les annotations existantes  
         annotations = {}  
@@ -365,6 +368,28 @@ class MetadataView(View):
          data['recommended_ranger_policy'] = self._get_ranger_from_semantic_analyzer(  
             data['entity_types'], semantic_analyzer  
          )
+
+
+        for data in result:  
+          enriched_doc = {  
+           'job_id': job_id,  
+           'column_name': data['column_name'],  
+           'entity_types': data['entity_types'],  
+           'sample_values': data['sample_values'],  
+           'total_entities': data['total_entities'],  
+           'recommended_rgpd_category': data.get('recommended_rgpd_category'),  
+           'recommended_sensitivity_level': data.get('recommended_sensitivity_level'),  
+           'recommended_ranger_policy': data.get('recommended_ranger_policy'),  
+           'validation_status': data['validation_status'],  
+           'created_at': datetime.now(),  
+           'updated_at': datetime.now()  
+          }  
+          # Upsert pour éviter les doublons  
+          enriched_metadata_collection.update_one(  
+             {'job_id': job_id, 'column_name': data['column_name']},  
+             {'$set': enriched_doc},  
+             upsert=True  
+          ) 
         return result  
 
     except Exception as e :

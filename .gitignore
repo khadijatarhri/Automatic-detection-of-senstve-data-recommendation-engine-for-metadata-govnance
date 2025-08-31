@@ -29,3 +29,11 @@ build/
 
 .env  
 *.env
+
+complete_atlas_sync.py
+atlasRESTAPI.py
+atlas_entity_migration2.py
+atlas_entity_migration3.py
+complete_atlas_sync.py
+
+AtlasAPI/
