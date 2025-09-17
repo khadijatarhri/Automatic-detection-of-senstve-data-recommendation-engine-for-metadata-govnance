@@ -8,18 +8,15 @@ from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass  
 from enum import Enum  
 import json  
-import sqlite3  
 from datetime import datetime  
 import asyncio  
 import aiohttp  
 from sklearn.feature_extraction.text import TfidfVectorizer  
-from sklearn.metrics.pairwise import cosine_similarity  
 from sklearn.cluster import KMeans  
 from sklearn.decomposition import PCA  
 from sklearn.preprocessing import StandardScaler  
-import matplotlib.pyplot as plt  
-import seaborn as sns  
 from sklearn.preprocessing import StandardScaler  
+import re
 
 import warnings  
 warnings.filterwarnings('ignore')  
@@ -117,7 +114,6 @@ class IntelligentRecommendationEngine:
          self.vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')  
          self.scaler = StandardScaler()   
          self.recommendation_templates = self._load_recommendation_templates()  
-         self._initialize_database() 
           
 
 
@@ -133,52 +129,7 @@ class IntelligentRecommendationEngine:
        })
     
 
-    def _initialize_database(self):  
-        """Initialise la base de données pour stocker les recommandations"""  
-        conn = sqlite3.connect(self.database_path)  
-        cursor = conn.cursor()  
-          
-        cursor.execute('''  
-            CREATE TABLE IF NOT EXISTS recommendations (  
-                id TEXT PRIMARY KEY,  
-                dataset_id TEXT,  
-                type TEXT,  
-                title TEXT,  
-                description TEXT,  
-                priority REAL,  
-                confidence REAL,  
-                metadata TEXT,  
-                created_at TIMESTAMP  
-            )  
-        ''')  
-          
-        cursor.execute('''  
-            CREATE TABLE IF NOT EXISTS column_analysis (  
-                dataset_id TEXT,  
-                column_name TEXT,  
-                cluster_id INTEGER,  
-                sensitivity_score REAL,  
-                entity_types TEXT,  
-                anomaly_score REAL,  
-                pca_coordinates TEXT,  
-                PRIMARY KEY (dataset_id, column_name)  
-            )  
-        ''')  
-          
-        cursor.execute('''  
-            CREATE TABLE IF NOT EXISTS row_analysis (  
-                dataset_id TEXT,  
-                row_index INTEGER,  
-                cluster_id INTEGER,  
-                risk_score REAL,  
-                sensitive_fields_count INTEGER,  
-                PRIMARY KEY (dataset_id, row_index)  
-            )  
-        ''')  
-          
-        conn.commit()  
-        conn.close()  
-      
+
     def _extract_column_features(self, column_data: pd.Series, column_name: str, detected_entities: set) -> np.ndarray:  
         """Extrait les features d'une colonne spécifique"""  
         features = []  
@@ -516,49 +467,7 @@ class IntelligentRecommendationEngine:
           
         return recommendations  
       
-    def visualize_column_clusters(self, column_analysis: Dict[str, Any], output_path: str = "column_clusters.png"):  
-        """Visualise les clusters de colonnes avec PCA"""  
-        if not column_analysis or 'pca_coordinates' not in column_analysis:  
-            print("Pas de données PCA disponibles pour la visualisation")  
-            return  
-          
-        pca_coords = np.array(column_analysis['pca_coordinates'])  
-        clusters = column_analysis['clusters']  
-        column_names = column_analysis['column_names']  
-          
-        plt.figure(figsize=(12, 8))  
-          
-        # Scatter plot des coordonnées PCA  
-        scatter = plt.scatter(  
-            pca_coords[:, 0],   
-            pca_coords[:, 1] if pca_coords.shape[1] > 1 else np.zeros(len(pca_coords)),   
-            c=clusters,   
-            cmap='viridis',   
-            alpha=0.7,  
-            s=100  
-        )  
-          
-        plt.colorbar(scatter, label='Cluster ID')  
-        plt.xlabel('PC1')  
-        plt.ylabel('PC2' if pca_coords.shape[1] > 1 else 'Constant')  
-        plt.title('Clustering des Colonnes par Profil de Sensibilité')  
-          
-        # Ajouter les labels des colonnes  
-        for i, col_name in enumerate(column_names):  
-            plt.annotate(  
-                col_name,   
-                (pca_coords[i, 0], pca_coords[i, 1] if pca_coords.shape[1] > 1 else 0),  
-                xytext=(5, 5),   
-                textcoords='offset points',  
-                fontsize=8,  
-                alpha=0.7  
-            )  
-          
-        plt.tight_layout()  
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')  
-        plt.close()  
-          
-        print(f"Visualisation des colonnes sauvegardée: {output_path}")  
+    
       
     def create_dataset_profile_from_presidio(self, job_id: str, detected_entities: set, headers: list, csv_data: list) -> dict:  
         """Crée un profil de dataset enrichi à partir des données Presidio"""  
@@ -635,8 +544,6 @@ class IntelligentRecommendationEngine:
           
         # 7. Sauvegarder les recommandations avec informations ML  
         await self._save_recommendations(dataset_id, recommendations)  
-        await self._save_column_analysis(dataset_id, column_analysis)  
-        await self._save_row_analysis(dataset_id, row_analysis)  
           
         return DatasetRecommendation(  
             dataset_id=dataset_id,  
@@ -652,56 +559,9 @@ class IntelligentRecommendationEngine:
             }  
         )  
       
-    async def _save_column_analysis(self, dataset_id: str, column_analysis: Dict[str, Any]):  
-        """Sauvegarde l'analyse des colonnes"""  
-        conn = sqlite3.connect(self.database_path)  
-        cursor = conn.cursor()  
-          
-        column_names = column_analysis.get('column_names', [])  
-        clusters = column_analysis.get('clusters', [])  
-        anomaly_scores = column_analysis.get('anomaly_scores', [])  
-        pca_coords = column_analysis.get('pca_coordinates', [])  
-          
-        for i, column_name in enumerate(column_names):  
-            cursor.execute('''  
-                INSERT OR REPLACE INTO column_analysis   
-                (dataset_id, column_name, cluster_id, sensitivity_score, entity_types, anomaly_score, pca_coordinates)  
-                VALUES (?, ?, ?, ?, ?, ?, ?)  
-            ''', (  
-                dataset_id,  
-                column_name,  
-                clusters[i] if i < len(clusters) else 0,  
-                0.0,  # À calculer selon vos besoins  
-                json.dumps([]),  # À enrichir avec les entités détectées  
-                anomaly_scores[i] if i < len(anomaly_scores) else 0.0,  
-                json.dumps(pca_coords[i] if i < len(pca_coords) else [])  
-            ))  
-          
-        conn.commit()  
-        conn.close()  
+
       
-    async def _save_row_analysis(self, dataset_id: str, row_analysis: Dict[str, Any]):  
-        """Sauvegarde l'analyse des lignes"""  
-        conn = sqlite3.connect(self.database_path)  
-        cursor = conn.cursor()  
-          
-        clusters = row_analysis.get('clusters', [])  
-          
-        for row_index, cluster_id in enumerate(clusters):  
-            cursor.execute('''  
-                INSERT OR REPLACE INTO row_analysis   
-                (dataset_id, row_index, cluster_id, risk_score, sensitive_fields_count)  
-                VALUES (?, ?, ?, ?, ?)  
-            ''', (  
-                dataset_id,  
-                row_index,  
-                cluster_id,  
-                0.0,  # À calculer selon le profil de risque  
-                0     # À calculer selon le nombre de champs sensibles  
-            ))  
-          
-        conn.commit()  
-        conn.close()  
+
       
     def _calculate_sensitivity_distribution(self, detected_entities: set, entity_distribution: dict) -> dict:  
         """Calcule la distribution de sensibilité des données"""  
@@ -1157,6 +1017,262 @@ class DataQualityEngine:
         'issues_by_column': consistency_issues,  
         'total_issues': total_issues  
      }  
+
+
+    def _analyze_specific_formats(self, csv_data: list, column: str) -> list:
+     """
+     Analyse des formats spécifiques pour certaines colonnes (emails, téléphones, dates, CIN).
+    
+     Args:
+        csv_data (list): Les données CSV sous forme de liste de dictionnaires
+        column (str): Le nom de la colonne à analyser
+
+     Returns:
+        list: Liste des problèmes de format détectés
+     """
+     issues = []
+     col_lower = column.lower()
+     values = [(idx, str(row.get(column, '')).strip()) for idx, row in enumerate(csv_data)]
+
+    # Vérification email
+     if "email" in col_lower:
+        invalid_emails = []
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        for idx, value in values:
+            if value and not re.match(email_pattern, value):
+                invalid_emails.append(idx)
+        if invalid_emails:
+            issues.append({
+                "type": "invalid_email",
+                "count": len(invalid_emails),
+                "rows": invalid_emails,
+                "description": f"{len(invalid_emails)} emails invalides détectés",
+                "severity": "medium"
+            })
+
+    # Vérification téléphone
+     if "phone" in col_lower or "tel" in col_lower:
+        invalid_phones = []
+        phone_pattern = r'^(\+212|0)[5-7][0-9]{8}$|^\+?[1-9]\d{1,14}$'
+        for idx, value in values:
+            cleaned = value.replace(" ", "").replace("-", "")
+            if cleaned and not re.match(phone_pattern, cleaned):
+                invalid_phones.append(idx)
+        if invalid_phones:
+            issues.append({
+                "type": "invalid_phone",
+                "count": len(invalid_phones),
+                "rows": invalid_phones,
+                "description": f"{len(invalid_phones)} numéros de téléphone invalides détectés",
+                "severity": "medium"
+            })
+
+    # Vérification date
+     if "date" in col_lower:
+        invalid_dates = []
+        for idx, value in values:
+            if value and not self._is_date_like(value):  # utilise ta fonction existante
+                invalid_dates.append(idx)
+        if invalid_dates:
+            issues.append({
+                "type": "invalid_date",
+                "count": len(invalid_dates),
+                "rows": invalid_dates,
+                "description": f"{len(invalid_dates)} dates invalides détectées",
+                "severity": "medium"
+            })
+
+    # Vérification CIN (si colonne contient "cin")
+     if "cin" in col_lower:
+        invalid_cins = []
+        cin_pattern = r'^[A-Z]{1,2}[0-9]{3,6}$'  # ex: AB123456
+        for idx, value in values:
+            if value and not re.match(cin_pattern, value, re.IGNORECASE):
+                invalid_cins.append(idx)
+        if invalid_cins:
+            issues.append({
+                "type": "invalid_cin",
+                "count": len(invalid_cins),
+                "rows": invalid_cins,
+                "description": f"{len(invalid_cins)} CIN invalides détectés",
+                "severity": "low"
+            })
+
+     return issues
+
+    
+
+    def _analyze_data_type_consistency(self , csv_data: list, column: str) -> list:
+     """
+     Analyse la cohérence des types de données dans une colonne spécifique.
+     Détecte les incohérences de types (mélange de nombres et texte, dates mal formatées, etc.)
+
+     Args:
+        csv_data (list): Les données CSV sous forme de liste de dictionnaires
+        column (str): Le nom de la colonne à analyser
+
+     Returns:
+        list: Liste des problèmes de cohérence de type détectés
+     """
+     issues = []
+
+    # Extraire toutes les valeurs non vides de la colonne
+     values = []
+     for idx, row in enumerate(csv_data):
+        value = row.get(column, '')
+        if value is not None and str(value).strip() != '':
+            values.append({
+                'value': str(value).strip(),
+                'row_index': idx
+            })
+
+     if len(values) < 2:  # Pas assez de données pour l'analyse
+        return issues
+
+     # ---- Fonctions internes ----
+     def is_date_like(val: str) -> bool:
+        """Vérifie si la valeur ressemble à une date selon plusieurs formats."""
+        date_formats = ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d"]
+        for fmt in date_formats:
+            try:
+                datetime.strptime(val, fmt)
+                return True
+            except ValueError:
+                continue
+        return False
+
+     def is_phone_like(val: str) -> bool:
+        """Vérifie si la valeur ressemble à un numéro de téléphone."""
+        cleaned = re.sub(r"[\s\-\(\)]", "", val)
+        return bool(re.match(r"^\+?\d{6,15}$", cleaned))
+
+     def analyze_date_formats(values: list) -> dict:
+        """Retourne les formats de date détectés dans les données."""
+        date_formats = {}
+        formats = ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d"]
+        for v in values:
+            for fmt in formats:
+                try:
+                    datetime.strptime(v['value'], fmt)
+                    date_formats.setdefault(fmt, 0)
+                    date_formats[fmt] += 1
+                    break
+                except ValueError:
+                    continue
+        return date_formats
+
+    # 1. Classification des types de données
+     type_classifications = {
+        'integer': [],
+        'float': [],
+        'date': [],
+        'email': [],
+        'phone': [],
+        'boolean': [],
+        'text': [],
+        'mixed': []
+     }
+
+     for item in values:
+        value = item['value']
+        row_idx = item['row_index']
+        detected_types = []
+
+        # Test integer
+        if re.match(r'^-?\d+$', value):
+            detected_types.append('integer')
+
+        # Test float
+        elif re.match(r'^-?\d*\.\d+$', value) or re.match(r'^-?\d+,\d+$', value):
+            detected_types.append('float')
+
+        # Test date
+        elif is_date_like(value):
+            detected_types.append('date')
+
+        # Test email
+        elif re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', value):
+            detected_types.append('email')
+
+        # Test téléphone
+        elif is_phone_like(value):
+            detected_types.append('phone')
+
+        # Test boolean
+        elif value.lower() in ['true', 'false', 'yes', 'no', 'oui', 'non', '1', '0', 'vrai', 'faux']:
+            detected_types.append('boolean')
+
+        # Sinon texte
+        if not detected_types:
+            detected_types.append('text')
+
+        # Si plusieurs types détectés → mixte
+        if len(detected_types) > 1:
+            type_classifications['mixed'].append(row_idx)
+        else:
+            type_classifications[detected_types[0]].append(row_idx)
+
+    # 2. Cohérence des types
+     non_empty_types = {k: v for k, v in type_classifications.items() if v}
+
+     if len(non_empty_types) > 2:
+        majority_type = max(non_empty_types.keys(), key=lambda k: len(non_empty_types[k]))
+        minority_types = {k: v for k, v in non_empty_types.items() if k != majority_type}
+        total_minority_count = sum(len(v) for v in minority_types.values())
+
+        issues.append({
+            'type': 'mixed_data_types',
+            'count': total_minority_count,
+            'rows': [idx for indices in minority_types.values() for idx in indices],
+            'description': f"Types de données incohérents. Type majoritaire: {majority_type}, minoritaires: {list(minority_types.keys())}",
+            'severity': 'high' if total_minority_count > len(values) * 0.1 else 'medium'
+        })
+
+    # 3. Problèmes spécifiques
+     if 'integer' in non_empty_types and 'float' in non_empty_types:
+        mixed_numeric_count = len(non_empty_types['integer']) + len(non_empty_types['float'])
+        if mixed_numeric_count < len(values) * 0.9:
+            issues.append({
+                'type': 'mixed_numeric_text',
+                'count': len(values) - mixed_numeric_count,
+                'rows': [idx for k, indices in non_empty_types.items()
+                        if k not in ['integer', 'float'] for idx in indices],
+                'description': "Mélange de données numériques et non-numériques",
+                'severity': 'medium'
+            })
+
+     if 'date' in non_empty_types:
+        date_formats = analyze_date_formats(values)
+        if len(date_formats) > 2:
+            issues.append({
+                'type': 'inconsistent_date_formats',
+                'count': len(non_empty_types['date']),
+                'rows': non_empty_types['date'],
+                'description': f"Formats de date incohérents: {list(date_formats.keys())}",
+                'severity': 'medium'
+            })
+
+    # 4. Valeurs nulles déguisées
+     null_like_values = ['null', 'none', 'nan', 'n/a', 'na', '#n/a', 'nil', '', ' ']
+     null_like_rows = []
+     for idx, row in enumerate(csv_data):
+        value = str(row.get(column, '')).strip().lower()
+        if value in null_like_values:
+            null_like_rows.append(idx)
+
+     if null_like_rows and len(null_like_rows) > 1:
+        issues.append({
+            'type': 'disguised_null_values',
+            'count': len(null_like_rows),
+            'rows': null_like_rows,
+            'description': "Valeurs nulles déguisées détectées",
+            'severity': 'low'
+        })
+
+     return issues
+
+    
+    
   
     def _analyze_column_patterns(self, csv_data: list, column: str) -> list:  
      """Analyse automatique des patterns dans une colonne"""  
@@ -1261,82 +1377,8 @@ class DataQualityEngine:
         })  
       
      return issues  
-  
-    def _analyze_data_type_consistency(self, csv_data: list, column: str) -> list:  
-     """Analyse de la cohérence des types de données"""  
-     from collections import Counter  
-      
-     issues = []  
-     type_counts = Counter()  
-      
-     for row in csv_data:  
-        value = row.get(column, '')  
-        if value is None or str(value).strip() == '':  
-            continue  
-              
-        value_str = str(value).strip()  
-          
-        # Classifier le type de données  
-        if value_str.isdigit():  
-            type_counts['integer'] += 1  
-        elif self._is_float(value_str):  
-            type_counts['float'] += 1  
-        elif self._is_date_like(value_str):  
-            type_counts['date'] += 1  
-        elif value_str.isalpha():  
-            type_counts['text'] += 1  
-        elif '@' in value_str:  
-            type_counts['email'] += 1  
-        else:  
-            type_counts['mixed'] += 1  
-      
-     # Si plus de 2 types différents avec des proportions significatives  
-     if len(type_counts) > 2:  
-        minority_types = []  
-        total_values = sum(type_counts.values())  
-          
-        for data_type, count in type_counts.items():  
-            if count / total_values < 0.1:  # Moins de 10%  
-                minority_types.append(data_type)  
-          
-        if minority_types:  
-            # Trouver les lignes avec des types minoritaires  
-            inconsistent_rows = []  
-            for idx, row in enumerate(csv_data):  
-                value = str(row.get(column, '')).strip()  
-                if value and self._get_value_type(value) in minority_types:  
-                    inconsistent_rows.append(idx)  
-              
-            if inconsistent_rows:  
-                issues.append({  
-                    'type': 'mixed_data_types',  
-                    'count': len(inconsistent_rows),  
-                    'rows': inconsistent_rows,  
-                    'description': f"Types de données incohérents détectés: {', '.join(minority_types)}"  
-                })  
-      
-     return issues  
-  
-    def _analyze_specific_formats(self, csv_data: list, column: str) -> list:  
-     """Votre analyse spécifique existante (emails, téléphones, etc.)"""  
-     issues = []  
-     header_lower = column.lower()  
-      
-    # Votre code existant pour les validations spécifiques  
-     if any(keyword in header_lower for keyword in ['email', 'mail', 'e-mail', 'courriel']):  
-        invalid_emails = self._validate_email_format(csv_data, column)  
-        if invalid_emails:  
-            issues.append({  
-                'type': 'invalid_email',  
-                'count': len(invalid_emails),  
-                'rows': invalid_emails,  
-                'description': f"Format d'email invalide dans {len(invalid_emails)} lignes"  
-            })  
-      
-    # ... reste de votre code existant pour téléphones, dates, etc.  
-      
-     return issues  
-  
+    
+
     def _is_float(self, value: str) -> bool:  
      """Vérifie si une valeur est un nombre décimal"""  
      try:  
@@ -1355,19 +1397,5 @@ class DataQualityEngine:
      ]  
      return any(re.match(pattern, value) for pattern in date_patterns)  
   
-    def _get_value_type(self, value: str) -> str:  
-     """Détermine le type d'une valeur"""  
-     if value.isdigit():  
-        return 'integer'  
-     elif self._is_float(value):  
-        return 'float'  
-     elif self._is_date_like(value):  
-        return 'date'  
-     elif value.isalpha():  
-        return 'text'  
-     elif '@' in value:  
-        return 'email'  
-     else:  
-        return 'mixed'
-
-
+  
+ 

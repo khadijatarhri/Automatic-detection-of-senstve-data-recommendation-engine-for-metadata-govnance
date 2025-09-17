@@ -101,11 +101,7 @@
                                 </span>  
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">  
-                                <button onclick="openColumnValidationModal('{{ column.column_name }}', {{ column.entity_types|safe }}, {  
-                                    rgpd_category: '{{ column.recommended_rgpd_category|default:"" }}',  
-                                    sensitivity_level: '{{ column.recommended_sensitivity_level|default:"" }}',  
-                                    ranger_policy: '{{ column.recommended_ranger_policy|default:"" }}'  
-                                })" class="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">  
+                                <button onclick="openColumnValidationModal('{{ column.column_name|escapejs }}', {{ column.entity_types|safe }}, '{{ column.recommended_rgpd_category|default:""|escapejs }}', '{{ column.recommended_sensitivity_level|default:""|escapejs }}', '{{ column.recommended_ranger_policy|default:""|escapejs }}')" class="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">  
                                     <i class="fas fa-edit mr-1"></i>Annoter Colonne  
                                 </button> 
                             </td>  
@@ -214,145 +210,153 @@
   </div>
   <script>  
     let currentColumnName = null;  
+    let currentAiRecommendations = {};
       
-    function openColumnValidationModal(columnName, entityTypes, aiRecommendations) {  
-    currentColumnName = columnName;  
-    document.getElementById('modalColumnName').textContent = columnName;  
-    document.getElementById('modalEntityTypes').textContent = Array.from(entityTypes).join(', ');  
-      
-    // Remplir le select des types d'entités  
-    const entityTypeSelect = document.getElementById('columnEntityType');  
-    entityTypeSelect.innerHTML = '';  
-    Array.from(entityTypes).forEach(type => {  
-        const option = document.createElement('option');  
-        option.value = type;  
-        option.textContent = type;  
-        entityTypeSelect.appendChild(option);  
-    });  
-      
-    // Pré-remplir avec les recommandations IA si disponibles  
-    if (aiRecommendations) {  
-        // Catégorie RGPD recommandée  
-        if (aiRecommendations.rgpd_category) {  
-            document.getElementById('columnRgpdCategory').value = aiRecommendations.rgpd_category;  
+    function openColumnValidationModal(columnName, entityTypes, rgpdCategory, sensitivityLevel, rangerPolicy) {  
+        currentColumnName = columnName;
+        currentAiRecommendations = {
+            rgpd_category: rgpdCategory,
+            sensitivity_level: sensitivityLevel,
+            ranger_policy: rangerPolicy
+        };
+        
+        document.getElementById('modalColumnName').textContent = columnName;  
+        document.getElementById('modalEntityTypes').textContent = Array.from(entityTypes).join(', ');  
+          
+        // Remplir le select des types d'entités  
+        const entityTypeSelect = document.getElementById('columnEntityType');  
+        entityTypeSelect.innerHTML = '';  
+        Array.from(entityTypes).forEach(type => {  
+            const option = document.createElement('option');  
+            option.value = type;  
+            option.textContent = type;  
+            entityTypeSelect.appendChild(option);  
+        });  
+          
+        // Pré-remplir avec les recommandations IA si disponibles  
+        if (currentAiRecommendations.rgpd_category) {  
+            document.getElementById('columnRgpdCategory').value = currentAiRecommendations.rgpd_category;  
         }  
           
-        // Niveau de sensibilité recommandé  
-        if (aiRecommendations.sensitivity_level) {  
-            document.getElementById('columnSensitivityLevel').value = aiRecommendations.sensitivity_level;  
+        if (currentAiRecommendations.sensitivity_level) {  
+            document.getElementById('columnSensitivityLevel').value = currentAiRecommendations.sensitivity_level;  
         }  
           
-        // Politique Ranger recommandée  
-        if (aiRecommendations.ranger_policy) {  
-            document.getElementById('columnAnonymizationMethod').value = aiRecommendations.ranger_policy;  
-        }  
-    }  
-      
-    document.getElementById('columnValidationModal').classList.remove('hidden');  
-}
+        if (currentAiRecommendations.ranger_policy) {  
+            document.getElementById('columnAnonymizationMethod').value = currentAiRecommendations.ranger_policy;  
+        }
+          
+        document.getElementById('columnValidationModal').classList.remove('hidden');  
+    }
       
     function closeColumnValidationModal() {  
         document.getElementById('columnValidationModal').classList.add('hidden');  
-        currentColumnName = null;  
+        currentColumnName = null;
+        currentAiRecommendations = {};  
     }  
       
  
     function saveColumnAnnotation() {  
-    console.log("=== DEBUG SAUVEGARDE ===");  
-    console.log("currentColumnName:", currentColumnName);  
-      
-    // Vérifier que tous les éléments existent  
-    const elements = {  
-        entityType: document.getElementById('columnEntityType'),  
-        status: document.getElementById('columnValidationStatus'),  
-        rgpdCategory: document.getElementById('columnRgpdCategory'),  
-        anonymizationMethod: document.getElementById('columnAnonymizationMethod'),  
-        comments: document.getElementById('columnAnnotationComments')  
-    };  
-      
-    // Vérifier chaque élément  
-    for (const [name, element] of Object.entries(elements)) {  
-        if (!element) {  
-            console.error(`Élément manquant: ${name}`);  
-            alert(`Erreur: élément ${name} non trouvé`);  
+        console.log("=== DEBUG SAUVEGARDE ===");  
+        console.log("currentColumnName:", currentColumnName);  
+          
+        // Vérifier que tous les éléments existent  
+        const elements = {  
+            entityType: document.getElementById('columnEntityType'),  
+            status: document.getElementById('columnValidationStatus'),  
+            rgpdCategory: document.getElementById('columnRgpdCategory'),  
+            sensitivityLevel: document.getElementById('columnSensitivityLevel'),
+            anonymizationMethod: document.getElementById('columnAnonymizationMethod'),  
+            comments: document.getElementById('columnAnnotationComments')  
+        };  
+          
+        // Vérifier chaque élément  
+        for (const [name, element] of Object.entries(elements)) {  
+            if (!element) {  
+                console.error(`Élément manquant: ${name}`);  
+                alert(`Erreur: élément ${name} non trouvé`);  
+                return;  
+            }  
+        }  
+          
+        if (!currentColumnName) {  
+            console.error("currentColumnName est null ou undefined");  
+            alert("Erreur: nom de colonne non défini");  
             return;  
         }  
-    }  
-      
-    if (!currentColumnName) {  
-        console.error("currentColumnName est null ou undefined");  
-        alert("Erreur: nom de colonne non défini");  
-        return;  
-    }  
-      
-    const entityType = elements.entityType.value;  
-    const status = elements.status.value;  
-    const rgpdCategory = elements.rgpdCategory.value;  
-    const anonymizationMethod = elements.anonymizationMethod.value;  
-    const comments = elements.comments.value;  
-      
-    console.log("Données à envoyer:", {  
-        entity_type: entityType,  
-        validation_status: status,  
-        rgpd_category: rgpdCategory,  
-        anonymization_method: anonymizationMethod,  
-        annotation_comments: comments  
-    });  
-      
-    const url = `/recommendations/column-validation/{{ job_id }}/${currentColumnName}/`;  
-    console.log("URL de la requête:", url);  
-      
-    fetch(url, {  
-        method: 'POST',  
-        headers: {  
-            'Content-Type': 'application/json',  
-            'X-CSRFToken': '{{ csrf_token }}'  
-        },  
-        body: JSON.stringify({  
+          
+        const entityType = elements.entityType.value;  
+        const status = elements.status.value;  
+        const rgpdCategory = elements.rgpdCategory.value; 
+        const sensitivityLevel = elements.sensitivityLevel.value; 
+        const anonymizationMethod = elements.anonymizationMethod.value;  
+        const comments = elements.comments.value;  
+          
+        console.log("Données à envoyer:", {  
             entity_type: entityType,  
             validation_status: status,  
-            rgpd_category: rgpdCategory,  
+            rgpd_category: rgpdCategory,
+            sensitivity_level: sensitivityLevel,  
             anonymization_method: anonymizationMethod,  
             annotation_comments: comments  
-        })  
-    }).then(response => {  
-        console.log("Réponse reçue:", response.status);  
-        return response.json();  
-    }).then(data => {  
-        console.log("Données de réponse:", data);  
-        if (data.success) {  
-            alert("Sauvegarde réussie!");  
-            closeColumnValidationModal();  
-            location.reload();  
-        } else {  
-            alert("Erreur: " + (data.error || 'Erreur inconnue'));  
-        }  
-    }).catch(error => {  
-        console.error("Erreur fetch:", error);  
-        alert("Erreur de connexion: " + error.message);  
-    });  
-}
+        });  
+          
+        const url = `/recommendations/column-validation/{{ job_id }}/${currentColumnName}/`;  
+        console.log("URL de la requête:", url);  
+          
+        fetch(url, {  
+            method: 'POST',  
+            headers: {  
+                'Content-Type': 'application/json',  
+                'X-CSRFToken': '{{ csrf_token }}'  
+            },  
+            body: JSON.stringify({  
+                entity_type: entityType,  
+                validation_status: status,  
+                rgpd_category: rgpdCategory,
+                sensitivity_level: sensitivityLevel,  
+                anonymization_method: anonymizationMethod,  
+                annotation_comments: comments  
+            })  
+        }).then(response => {  
+            console.log("Réponse reçue:", response.status);  
+            return response.json();  
+        }).then(data => {  
+            console.log("Données de réponse:", data);  
+            if (data.success) {  
+                alert("Sauvegarde réussie!");  
+                closeColumnValidationModal();  
+                location.reload();  
+            } else {  
+                alert("Erreur: " + (data.error || 'Erreur inconnue'));  
+            }  
+        }).catch(error => {  
+            console.error("Erreur fetch:", error);  
+            alert("Erreur de connexion: " + error.message);  
+        });  
+    }
   
-function showNotification(message, type) {  
-    // Créer l'élément de notification  
-    const notification = document.createElement('div');  
-    notification.className = `fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm ${  
-        type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'  
-    }`;  
-    notification.innerHTML = `  
-        <div class="flex items-center">  
-            <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'} mr-2"></i>  
-            <span>${message}</span>  
-        </div>  
-    `;  
-      
-    document.body.appendChild(notification);  
-      
-    // Supprimer après 3 secondes  
-    setTimeout(() => {  
-        notification.remove();  
-    }, 3000);  
-}
+    function showNotification(message, type) {  
+        // Créer l'élément de notification  
+        const notification = document.createElement('div');  
+        notification.className = `fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm ${  
+            type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'  
+        }`;  
+        notification.innerHTML = `  
+            <div class="flex items-center">  
+                <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'} mr-2"></i>  
+                <span>${message}</span>  
+            </div>  
+        `;  
+          
+        document.body.appendChild(notification);  
+          
+        // Supprimer après 3 secondes  
+        setTimeout(() => {  
+            notification.remove();  
+        }, 3000);  
+    }
+    
     // Fermer le modal en cliquant à l'extérieur  
     window.onclick = function(event) {  
         const modal = document.getElementById('columnValidationModal');  

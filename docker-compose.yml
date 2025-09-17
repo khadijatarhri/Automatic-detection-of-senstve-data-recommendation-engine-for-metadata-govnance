@@ -1,34 +1,90 @@
-version: '3.8'  
-  
-services:  
-  mongodb:  
-    image: mongo:latest  
-    ports:  
-      - "27017:27017"  
-    volumes:  
-      - mongodb_data:/data/db  
-    networks:  
-      - hdp-network  
-  
-  web:  
-    build: .  
-    ports:  
-      - "8001:8000"  
-    depends_on:  
-      - mongodb  
-    environment:  
-      - MONGODB_HOST=mongodb  
-      - ATLAS_URL=http://172.26.0.2:21000  # Nouvelle IP dans hdp-network  
-      - ATLAS_USERNAME=admin  
-      - ATLAS_PASSWORD=ensias123  
-    volumes:  
-      - .:/app  
-    networks:  
-      - hdp-network  
-  
-volumes:  
-  mongodb_data:  
-  
-networks:  
-  hdp-network:  
+# =============================================================================
+# CHANGEMENTS : Ajout du réseau Kafka et variables d'environnement
+# VOS SERVICES EXISTANTS : Restent identiques
+# =============================================================================
+
+version: '3.8'
+
+# =============================================================================
+# RÉSEAUX - Garder votre réseau + ajouter Kafka
+# =============================================================================
+networks:
+  # Votre réseau HDP existant (GARDÉ TEL QUEL)
+  hdp-network:
     external: true
+    
+  # NOUVEAU: Réseau pour communiquer avec Kafka
+  kafka-integration:
+    external: true
+    name: kafka-integration-network
+
+services:
+
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - hdp-network    
+
+  # ===========================================================================
+  # DJANGO WEB -  service existant (MODIFIÉ)
+  # ===========================================================================
+  web:
+    build: .
+    ports:
+      - "8001:8000"
+    depends_on:
+      - mongodb
+    environment:
+      # ===  VARIABLES EXISTANTES (GARDÉES) ===
+      - MONGODB_HOST=mongodb
+      - ATLAS_URL=http://172.26.0.2:21000
+      - ATLAS_USERNAME=admin
+      - ATLAS_PASSWORD=ensias123
+      
+      # === NOUVELLES VARIABLES KAFKA ===
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-broker:29092
+      - KAFKA_CONSUMER_GROUP=django-governance-group
+      - KAFKA_ENABLED=true
+    volumes:
+      - .:/app  # Votre volume existant
+      # NOUVEAU: Monter l'extension Kafka
+      - ../kafka-orchestrator/network-bridge/django-kafka-extension:/app/kafka_integration:ro
+    networks:
+      - hdp-netappwork         # Votre réseau existant
+      - kafka-integration   # NOUVEAU: Accès à Kafka
+
+  # ===========================================================================
+  # KAFKA CONSUMER - NOUVEAU SERVICE
+  # ===========================================================================
+  # RÔLE : Service dédié pour écouter les messages Kafka
+  # AVANTAGE : Séparer la logique web de la logique de traitement des messages
+  kafka-consumer:
+    build: .  # Même image que votre Django
+    container_name: django-kafka-consumer
+    depends_on:
+      - mongodb
+      - web
+    environment:
+      # Même configuration que votre Django web
+      - MONGODB_HOST=mongodb
+      - ATLAS_URL=http://172.26.0.2:21000
+      - ATLAS_USERNAME=admin
+      - ATLAS_PASSWORD=ensias123
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-broker:29092
+      - KAFKA_CONSUMER_GROUP=django-governance-group
+    volumes:
+      - .:/app  # Même code source
+      - ../kafka-orchestrator/network-bridge/django-kafka-extension:/app/kafka_integration:ro
+    networks:
+      - hdp-network
+      - kafka-integration
+    # COMMANDE SPÉCIALE : Lance le consumer Kafka au lieu du serveur web
+    command: ["python", "manage.py", "start_kafka_consumer"]
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:  # Votre volume existant

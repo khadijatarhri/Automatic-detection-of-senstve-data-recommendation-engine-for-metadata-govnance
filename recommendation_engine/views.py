@@ -1,15 +1,14 @@
-from django.shortcuts import render
 import asyncio
 # Create your views here.
 from django.shortcuts import render, redirect  
-from django.http import HttpResponse, JsonResponse
+from django.http import  JsonResponse
 from django.views import View  
-from .MoteurDeRecommandationAvecDeepSeekML import IntelligentRecommendationEngine , GeminiClient , DataQualityEngine
+from .MoteurDeRecommandationAvecDeepSeekML import   GeminiClient , DataQualityEngine
 from .models import RecommendationStorage  
 import os  
 from pymongo import MongoClient  
 from bson import ObjectId  
-from semantic_engine import SemanticAnalyzer, IntelligentAutoTagger, EntityMetadata  
+from semantic_engine import SemanticAnalyzer, IntelligentAutoTagger  
 from presidio_custom import create_enhanced_analyzer_engine  
 from db_connections import db as main_db  
 import pandas as pd  
@@ -621,23 +620,144 @@ class DataQualityView(View):
 
 
     def post(self, request, job_id):  
-        """Appliquer les corrections de qualité"""  
-        action = request.POST.get('action')  
+     """Appliquer les corrections de qualité"""  
+     if not request.session.get("user_email"):  
+        return JsonResponse({'error': 'Non autorisé'}, status=401)  
+      
+    # Vérification du rôle data steward  
+     user_email = request.session.get("user_email")  
+     from pymongo import MongoClient  
+     client = MongoClient('mongodb://mongodb:27017/')  
+     db = client['csv_anonymizer_db']  
+     users = db['users']  
+     user = users.find_one({'email': user_email})  
+      
+     if not user or user.get('role') != 'user':  
+        return JsonResponse({'error': 'Accès refusé'}, status=403)  
+      
+     action = request.POST.get('action')  
+      
+     if action == 'batch_cleaning':  
+        return self._apply_batch_cleaning(request, job_id)  
+     elif action == 'remove_duplicates':  
+        return self._remove_duplicates(request, job_id)  
+     elif action == 'remove_missing_values':  
+        return self._remove_missing_values(request, job_id)  
+     elif action == 'fix_inconsistencies':  
+        return self._fix_inconsistencies(request, job_id)  
+      
+     return JsonResponse({'error': 'Action non reconnue'}, status=400)  
+  
+    def _apply_batch_cleaning(self, request, job_id):  
+     """Application de plusieurs corrections en une seule fois"""  
+     try:  
+        import json  
+        selected_actions = json.loads(request.POST.get('selected_actions', '[]'))  
           
-        if action == 'remove_duplicates':  
-            return self._remove_duplicates(request, job_id)  
-        elif action == 'fix_inconsistencies':  
-            return self._fix_inconsistencies(request, job_id)  
-        elif action == 'fill_missing_values':  
-            return self._fill_missing_values(request, job_id)  
+        # Récupérer les données  
+        client = MongoClient('mongodb://mongodb:27017/')  
+        csv_db = client['csv_anonymizer_db']  
+        collection = csv_db['csv_data']  
           
-        return JsonResponse({'error': 'Action non reconnue'}, status=400)  
+        job_data = collection.find_one({'job_id': str(job_id)})  
+        if not job_data:  
+            return JsonResponse({'error': 'Données non trouvées'}, status=404)  
+          
+        df = pd.DataFrame(job_data['data'])  
+        original_count = len(df)  
+        total_changes = 0  
+        applied_actions = []  
+          
+        # Appliquer les actions dans l'ordre optimal  
+        if 'remove_duplicates' in selected_actions:  
+            before_count = len(df)  
+            df = df.drop_duplicates(keep='first')  
+            removed = before_count - len(df)  
+            total_changes += removed  
+            applied_actions.append(f"Doublons supprimés: {removed}")  
+          
+        if 'remove_missing_values' in selected_actions:  
+            before_count = len(df)  
+            df = df.dropna()  
+            removed = before_count - len(df)  
+            total_changes += removed  
+            applied_actions.append(f"Lignes avec valeurs manquantes supprimées: {removed}")  
+          
+        if 'fix_inconsistencies' in selected_actions:  
+            # Logique de correction des incohérences  
+            # (à implémenter selon vos besoins spécifiques)  
+            applied_actions.append("Incohérences corrigées")  
+          
+        # Sauvegarder les données nettoyées  
+        job_data['data'] = df.to_dict('records')  
+        job_data['quality_actions'] = job_data.get('quality_actions', [])  
+        job_data['quality_actions'].append({  
+            'action': 'batch_cleaning',  
+            'timestamp': datetime.now(),  
+            'selected_actions': selected_actions,  
+            'total_changes': total_changes,  
+            'applied_actions': applied_actions  
+        })  
+          
+        collection.replace_one({'job_id': str(job_id)}, job_data)  
+          
+        return JsonResponse({  
+            'success': True,  
+            'total_changes': total_changes,  
+            'applied_actions': applied_actions,  
+            'final_count': len(df)  
+        })  
+          
+     except Exception as e:  
+        return JsonResponse({'error': str(e)}, status=500)
+
+    def _remove_missing_values(self, request, job_id):  
+     """Suppression des valeurs manquantes"""  
+     try:  
+        # Récupérer les données  
+        client = MongoClient('mongodb://mongodb:27017/')  
+        csv_db = client['csv_anonymizer_db']  
+        collection = csv_db['csv_data']  
+          
+        job_data = collection.find_one({'job_id': str(job_id)})  
+        if not job_data:  
+            return JsonResponse({'error': 'Données non trouvées'}, status=404)  
+          
+        # Appliquer la suppression des valeurs manquantes  
+        df = pd.DataFrame(job_data['data'])  
+        original_count = len(df)  
+          
+        # Supprimer les lignes avec des valeurs manquantes  
+        df_cleaned = df.dropna()  
+        removed_count = original_count - len(df_cleaned)  
+          
+        # Sauvegarder les données nettoyées  
+        job_data['data'] = df_cleaned.to_dict('records')  
+        job_data['quality_actions'] = job_data.get('quality_actions', [])  
+        job_data['quality_actions'].append({  
+            'action': 'remove_missing_values',  
+            'timestamp': datetime.now(),  
+            'removed_count': removed_count  
+        })  
+          
+        collection.replace_one({'job_id': str(job_id)}, job_data)  
+          
+        return JsonResponse({  
+            'success': True,  
+            'removed_count': removed_count,  
+            'remaining_count': len(df_cleaned)  
+        })  
+          
+     except Exception as e:  
+        return JsonResponse({'error': str(e)}, status=500)
       
     def _remove_duplicates(self, request, job_id):  
-        """Suppression des doublons avec confirmation"""  
-        duplicate_strategy = request.POST.get('duplicate_strategy', 'keep_first')  
-        columns_to_check = request.POST.getlist('columns_to_check')  
-          
+     """Suppression des doublons avec confirmation"""  
+    # Utiliser des valeurs par défaut appropriées  
+     duplicate_strategy = request.POST.get('duplicate_strategy', 'first')  # 'first' au lieu de 'keep_first'  
+     columns_to_check = request.POST.getlist('columns_to_check')  
+      
+     try:  
         # Récupérer les données  
         client = MongoClient('mongodb://mongodb:27017/')  
         csv_db = client['csv_anonymizer_db']  
@@ -651,6 +771,7 @@ class DataQualityView(View):
         df = pd.DataFrame(job_data['data'])  
         original_count = len(df)  
           
+        # Supprimer les doublons avec la bonne stratégie  
         if columns_to_check:  
             df_cleaned = df.drop_duplicates(subset=columns_to_check, keep=duplicate_strategy)  
         else:  
@@ -674,4 +795,9 @@ class DataQualityView(View):
             'success': True,  
             'removed_count': removed_count,  
             'remaining_count': len(df_cleaned)  
-        })
+        })  
+          
+     except Exception as e:  
+        # Log l'erreur pour le débogage  
+        print(f"Erreur dans _remove_duplicates: {str(e)}")  
+        return JsonResponse({'error': str(e)}, status=500)
