@@ -3,7 +3,7 @@ import asyncio
 from django.shortcuts import render, redirect  
 from django.http import  JsonResponse
 from django.views import View  
-from .MoteurDeRecommandationAvecDeepSeekML import   GeminiClient , DataQualityEngine
+from .MoteurDeRecommandationAvecDeepSeekML import GeminiClient,  DataQualityEngine
 from .models import RecommendationStorage  
 import os  
 from pymongo import MongoClient  
@@ -13,8 +13,10 @@ from presidio_custom import create_enhanced_analyzer_engine
 from db_connections import db as main_db  
 import pandas as pd  
 from datetime import datetime
-
 from AtlasAPI.atlas_integration import GlossarySyncService  
+from .recommendation_engine_core import EnterpriseRecommendationEngine
+from .recommendation_formatters import EnterpriseFormatter
+
   
 class GlossarySyncView(View):  
     def post(self, request):  
@@ -48,75 +50,260 @@ class GlossaryView(View):
 
 
 
-class RecommendationView(View):  
-    def get(self, request, job_id):  
-        if not request.session.get("user_email"):  
-            return redirect('login_form')  
-          
-        storage = RecommendationStorage()  
-        recommendations = storage.get_recommendations(job_id)  
-          
-        return render(request, 'recommendation_engine/recommendations.html', {  
-            'job_id': job_id,  
-            'recommendations': recommendations  
-        })  
-  
-class RecommendationAPIView(View):  
-    def get(self, request, job_id):  
-        storage = RecommendationStorage()  
-        recommendations = storage.get_recommendations(job_id)  
-          
-        data = []  
-        for rec in recommendations:  
-            data.append({  
-                'id': rec.id,  
-                'title': rec.title,  
-                'description': rec.description,  
-                'category': rec.category,  
-                'priority': rec.priority,  
-                'confidence': rec.confidence,  
-                'created_at': rec.created_at.isoformat()  
-            })  
-          
-        return JsonResponse({'recommendations': data})
-    
-class RecommendationView(View):  
-    def get(self, request, job_id):  
-        if not request.session.get("user_email"):  
-            return redirect('login_form')  
-          
-        storage = RecommendationStorage()  
-        recommendations = storage.get_recommendations(job_id)  
-          
-        # Calculer les scores dynamiquement  
-        overall_score = self._calculate_overall_score(recommendations)  
-        rgpd_score = self._calculate_rgpd_score(recommendations)  
-          
-        return render(request, 'recommendation_engine/recommendations.html', {  
-            'job_id': job_id,  
-            'recommendations': recommendations,  
-            'overall_score': overall_score,  
-            'rgpd_score': rgpd_score  
-        })  
-      
-    def _calculate_overall_score(self, recommendations):  
-        if not recommendations:  
-            return 10.0  
-          
-        # Score basé sur la priorité moyenne des recommandations  
-        avg_priority = sum(rec.priority for rec in recommendations) / len(recommendations)  
-        return max(0.0, 10.0 - avg_priority)  
-      
-    def _calculate_rgpd_score(self, recommendations):  
-        rgpd_recs = [rec for rec in recommendations if rec.category == "COMPLIANCE_RGPD"]  
-        if not rgpd_recs:  
-            return 9.0  
-          
-        # Score RGPD basé sur le nombre et la priorité des recommandations RGPD  
-        avg_rgpd_priority = sum(rec.priority for rec in rgpd_recs) / len(rgpd_recs)  
-        return max(0.0, 10.0 - avg_rgpd_priority)
-    
+from csv_anonymizer.views import main_db, users  # ou importez depuis votre config
 
+class RecommendationView(View):
+    """Vue pour afficher les recommandations IA"""
+    
+    def get(self, request, job_id=None):
+        """Affiche les recommandations pour un job donné"""
+        
+        # Vérifications d'authentification
+        user_email = request.session.get("user_email")
+        if not user_email:
+            return redirect('login_form')
+        
+        user = users.find_one({'email': user_email})
+        if not user or user.get('role') not in ['admin', 'user']:
+            return redirect('authapp:home')
+        
+        if not job_id:
+            return render(request, 'recommendation_engine/error.html', {
+                'error': 'ID de job manquant'
+            })
+        
+        try:
+            # Récupérer les informations du job
+            job = main_db.anonymization_jobs.find_one({'_id': ObjectId(job_id)})
+            if not job:
+                return render(request, 'recommendation_engine/error.html', {
+                    'error': 'Job non trouvé'
+                })
+            
+            # Vérifier les autorisations
+            if (user.get('role') != 'admin' and 
+                user_email not in job.get('authorized_users', []) and 
+                job.get('user_email') != user_email):
+                return render(request, 'recommendation_engine/error.html', {
+                    'error': 'Accès non autorisé à ce job'
+                })
+            
+            # Générer ou récupérer les recommandations
+            recommendations_data = self._get_or_generate_recommendations(job_id, job)
+            
+            # Formater pour l'affichage
+            formatter = EnterpriseFormatter()
+            
+            context = {
+                'job_id': job_id,
+                'job': job,
+                'recommendations_data': recommendations_data,
+                'dashboard_view': formatter.format_dashboard_view(recommendations_data),
+                'technical_view': formatter.format_technical_view(recommendations_data),
+                'compliance_report': formatter.format_compliance_report(recommendations_data),
+                'user_role': user.get('role', 'user'),
+                'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            return render(request, 'recommendation_engine/recommendations.html', context)
+            
+        except Exception as e:
+            return render(request, 'recommendation_engine/error.html', {
+                'error': f'Erreur lors du chargement des recommandations: {str(e)}'
+            })
+    
+    def _get_or_generate_recommendations(self, job_id, job):
+        """Récupère les recommandations existantes ou les génère"""
+        
+        # Vérifier s'il existe déjà des recommandations sauvegardées
+        existing_recommendations = main_db.recommendations.find_one({'job_id': job_id})
+        if existing_recommendations and existing_recommendations.get('recommendations_data'):
+            print(f"Recommandations existantes trouvées pour job {job_id}")
+            return existing_recommendations['recommendations_data']
+        
+        # Générer de nouvelles recommandations
+        print(f"Génération de nouvelles recommandations pour job {job_id}")
+        return self._generate_fresh_recommendations(job_id, job)
+    
+    def _generate_fresh_recommendations(self, job_id, job):
+        """Génère de nouvelles recommandations"""
+        try:
+            # Récupérer les données du job
+            chunks_data = list(main_db.csv_chunks.find({'job_id': job_id}))
+            if not chunks_data:
+                # Fallback : essayer de récupérer depuis GridFS ou session
+                return self._generate_basic_recommendations(job_id)
+            
+            # Reconstituer les données
+            headers = chunks_data[0].get('headers', [])
+            sample_rows = []
+            
+            # Prendre un échantillon des premières données
+            for chunk in chunks_data[:1]:  # Prendre seulement le premier chunk
+                chunk_rows = chunk.get('rows', [])[:10]  # 10 premières lignes
+                for row in chunk_rows:
+                    if len(row) == len(headers):
+                        row_dict = {headers[i]: row[i] for i in range(len(headers))}
+                        sample_rows.append(row_dict)
+            
+            # Détecter les entités (simulation basique)
+            detected_entities = set()
+            for header in headers:
+                header_lower = header.lower()
+                if 'email' in header_lower:
+                    detected_entities.add('EMAIL_ADDRESS')
+                if 'phone' in header_lower or 'tel' in header_lower:
+                    detected_entities.add('PHONE_NUMBER')
+                if 'person' in header_lower or 'name' in header_lower:
+                    detected_entities.add('PERSON')
+                if 'iban' in header_lower:
+                    detected_entities.add('IBAN_CODE')
+                if 'id' in header_lower and 'maroc' in header_lower:
+                    detected_entities.add('ID_MAROC')
+                if 'location' in header_lower or 'address' in header_lower:
+                    detected_entities.add('LOCATION')
+                if 'date' in header_lower:
+                    detected_entities.add('DATE_TIME')
+            
+            # Générer les recommandations
+            async def generate_recommendations_async():
+                gemini_api_key = os.getenv('GEMINI_API_KEY', 'AIzaSyCnVTAxyObTDo4fNYeElF49EMvCGz6pLXQ')
+                
+                async with GeminiClient(gemini_api_key) as gemini_client:
+                    recommendation_engine = EnterpriseRecommendationEngine(gemini_client)
+                    
+                    # Créer le profil du dataset
+                    dataset_profile = recommendation_engine.create_dataset_profile_from_presidio(
+                        str(job_id), detected_entities, headers, sample_rows
+                    )
+                    
+                    # Générer les recommandations
+                    return await recommendation_engine.generate_structured_recommendations(dataset_profile)
+            
+            recommendations_data = asyncio.run(generate_recommendations_async())
+            
+            # Sauvegarder les recommandations pour usage futur
+            main_db.recommendations.update_one(
+                {'job_id': job_id},
+                {
+                    '$set': {
+                        'job_id': job_id,
+                        'recommendations_data': recommendations_data,
+                        'generated_at': datetime.now(),
+                        'headers': headers,
+                        'detected_entities': list(detected_entities)
+                    }
+                },
+                upsert=True
+            )
+            
+            return recommendations_data
+            
+        except Exception as e:
+            print(f"Erreur lors de la génération des recommandations: {e}")
+            return self._generate_basic_recommendations(job_id)
+    
+    def _generate_basic_recommendations(self, job_id):
+        """Génère des recommandations basiques en cas d'échec"""
+        from .models import RecommendationItem
+        
+        basic_recommendations = [
+            RecommendationItem(
+                id=f"basic_{job_id}_security",
+                title="Analyse de sécurité recommandée",
+                description="Une analyse de sécurité approfondie est recommandée pour ce dataset.",
+                category="SECURITY",
+                priority=8.0,
+                confidence=0.75,
+                metadata={'color': 'orange', 'basic': True},
+                created_at=datetime.now()
+            ),
+            RecommendationItem(
+                id=f"basic_{job_id}_compliance",
+                title="Vérification de conformité RGPD",
+                description="Vérifiez la conformité RGPD de ce dataset.",
+                category="COMPLIANCE",
+                priority=9.0,
+                confidence=0.80,
+                metadata={'color': 'red', 'basic': True},
+                created_at=datetime.now()
+            )
+        ]
+        
+        return {
+            'recommendations': basic_recommendations,
+            'recommendations_by_category': {
+                'SECURITY': [basic_recommendations[0]],
+                'COMPLIANCE': [basic_recommendations[1]]
+            },
+            'category_summary': {
+                'SECURITY': {'count': 1, 'avg_priority': 8.0, 'color': 'orange'},
+                'COMPLIANCE': {'count': 1, 'avg_priority': 9.0, 'color': 'red'}
+            },
+            'overall_score': 6.5,
+            'total_count': 2
+        }
+
+
+class RecommendationAPIView(View):
+    """API pour récupérer les recommandations en JSON"""
+    
+    def get(self, request, job_id=None):
+        """Retourne les recommandations en format JSON"""
+        
+        # Mêmes vérifications d'authentification
+        user_email = request.session.get("user_email")
+        if not user_email:
+            return JsonResponse({'error': 'Non authentifié'}, status=401)
+        
+        if not job_id:
+            return JsonResponse({'error': 'ID de job manquant'}, status=400)
+        
+        try:
+            job = main_db.anonymization_jobs.find_one({'_id': ObjectId(job_id)})
+            if not job:
+                return JsonResponse({'error': 'Job non trouvé'}, status=404)
+            
+            view_instance = RecommendationView()
+            recommendations_data = view_instance._get_or_generate_recommendations(job_id, job)
+            
+            # Convertir les objets RecommendationItem en dictionnaires
+            serialized_data = self._serialize_recommendations(recommendations_data)
+            
+            return JsonResponse(serialized_data)
+            
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+    
+    def _serialize_recommendations(self, recommendations_data):
+        """Convertit les recommandations en format JSON sérialisable"""
+        if not isinstance(recommendations_data, dict):
+            return {'error': 'Format de données invalide'}
+        
+        serialized = {
+            'overall_score': recommendations_data.get('overall_score', 0),
+            'total_count': recommendations_data.get('total_count', 0),
+            'category_summary': recommendations_data.get('category_summary', {}),
+            'recommendations': []
+        }
+        
+        recommendations = recommendations_data.get('recommendations', [])
+        for rec in recommendations:
+            if hasattr(rec, '__dict__'):  # Si c'est un objet RecommendationItem
+                serialized['recommendations'].append({
+                    'id': rec.id,
+                    'title': rec.title,
+                    'description': rec.description,
+                    'category': rec.category,
+                    'priority': rec.priority,
+                    'confidence': rec.confidence,
+                    'metadata': rec.metadata,
+                    'created_at': rec.created_at.isoformat() if rec.created_at else None
+                })
+            else:  # Si c'est déjà un dictionnaire
+                serialized['recommendations'].append(rec)
+        
+        return serialized
 
 
 class MetadataView(View):  
@@ -575,229 +762,217 @@ class ValidationWorkflowView(View):
 
 
 class DataQualityView(View):  
-    def get(self, request, job_id):    
-        if not request.session.get("user_email"):    
-            return redirect('login_form')    
-          
-        # Vérification du rôle data steward  
-        user_email = request.session.get("user_email")  
-        from pymongo import MongoClient  
-        client = MongoClient('mongodb://mongodb:27017/')  
-        db = client['csv_anonymizer_db']  
-        users = db['users']  
-        user = users.find_one({'email': user_email})  
-          
-        # Autoriser seulement les data stewards  
-        if not user or user.get('role') != 'user':  
-            return redirect('authapp:home')  
-
-
-        # Récupérer les données depuis MongoDB  
-        csv_db = client['csv_anonymizer_db']  
-        collection = csv_db['csv_data']  
-          
-        job_data = collection.find_one({'job_id': str(job_id)})  
-        if not job_data:  
-            return JsonResponse({'error': 'Données non trouvées'}, status=404)  
-          
-        headers = job_data.get('headers', [])  
-        csv_data = job_data.get('data', [])  
+    def __init__(self):  
+        super().__init__()  
+        # Connexion unique pour toute la classe  
+        self.client = MongoClient('mongodb://mongodb:27017/')  
+        self.csv_db = self.client['csv_anonymizer_db']  
+        self.users = self.csv_db['users']  
+      
+    def get(self, request, job_id):      
+        if not request.session.get("user_email"):      
+            return redirect('login_form')      
             
-        # Utiliser votre DataQualityEngine existante  
-        gemini_api_key = os.getenv('GEMINI_API_KEY')    
-          
-        async def analyze_quality():    
-            async with GeminiClient(gemini_api_key) as gemini_client:    
-                quality_engine = DataQualityEngine(gemini_client)  
-                return await quality_engine.analyze_data_quality(csv_data, headers)  # Ajout d'await  
+        # Vérification du rôle data steward    
+        user_email = request.session.get("user_email")    
+        user = self.users.find_one({'email': user_email})    
             
-        quality_analysis = asyncio.run(analyze_quality())    
-            
-        return render(request, 'recommendation_engine/data_quality.html', {    
-            'job_id': job_id,    
-            'quality_analysis': quality_analysis    
-        })
-
-
-    def post(self, request, job_id):  
-     """Appliquer les corrections de qualité"""  
-     if not request.session.get("user_email"):  
-        return JsonResponse({'error': 'Non autorisé'}, status=401)  
-      
-    # Vérification du rôle data steward  
-     user_email = request.session.get("user_email")  
-     from pymongo import MongoClient  
-     client = MongoClient('mongodb://mongodb:27017/')  
-     db = client['csv_anonymizer_db']  
-     users = db['users']  
-     user = users.find_one({'email': user_email})  
-      
-     if not user or user.get('role') != 'user':  
-        return JsonResponse({'error': 'Accès refusé'}, status=403)  
-      
-     action = request.POST.get('action')  
-      
-     if action == 'batch_cleaning':  
-        return self._apply_batch_cleaning(request, job_id)  
-     elif action == 'remove_duplicates':  
-        return self._remove_duplicates(request, job_id)  
-     elif action == 'remove_missing_values':  
-        return self._remove_missing_values(request, job_id)  
-     elif action == 'fix_inconsistencies':  
-        return self._fix_inconsistencies(request, job_id)  
-      
-     return JsonResponse({'error': 'Action non reconnue'}, status=400)  
+        # Autoriser seulement les data stewards    
+        if not user or user.get('role') != 'user':    
+            return redirect('authapp:home')    
   
-    def _apply_batch_cleaning(self, request, job_id):  
-     """Application de plusieurs corrections en une seule fois"""  
-     try:  
-        import json  
-        selected_actions = json.loads(request.POST.get('selected_actions', '[]'))  
-          
-        # Récupérer les données  
-        client = MongoClient('mongodb://mongodb:27017/')  
-        csv_db = client['csv_anonymizer_db']  
-        collection = csv_db['csv_data']  
-          
-        job_data = collection.find_one({'job_id': str(job_id)})  
-        if not job_data:  
-            return JsonResponse({'error': 'Données non trouvées'}, status=404)  
-          
-        df = pd.DataFrame(job_data['data'])  
-        original_count = len(df)  
-        total_changes = 0  
-        applied_actions = []  
-          
-        # Appliquer les actions dans l'ordre optimal  
-        if 'remove_duplicates' in selected_actions:  
-            before_count = len(df)  
-            df = df.drop_duplicates(keep='first')  
-            removed = before_count - len(df)  
-            total_changes += removed  
-            applied_actions.append(f"Doublons supprimés: {removed}")  
-          
-        if 'remove_missing_values' in selected_actions:  
-            before_count = len(df)  
-            df = df.dropna()  
-            removed = before_count - len(df)  
-            total_changes += removed  
-            applied_actions.append(f"Lignes avec valeurs manquantes supprimées: {removed}")  
-          
-        if 'fix_inconsistencies' in selected_actions:  
-            # Logique de correction des incohérences  
-            # (à implémenter selon vos besoins spécifiques)  
-            applied_actions.append("Incohérences corrigées")  
-          
-        # Sauvegarder les données nettoyées  
-        job_data['data'] = df.to_dict('records')  
-        job_data['quality_actions'] = job_data.get('quality_actions', [])  
-        job_data['quality_actions'].append({  
-            'action': 'batch_cleaning',  
-            'timestamp': datetime.now(),  
-            'selected_actions': selected_actions,  
-            'total_changes': total_changes,  
-            'applied_actions': applied_actions  
+        # Récupérer les données depuis les chunks  
+        chunks = list(self.csv_db['csv_chunks'].find({'job_id': str(job_id)}).sort('chunk_number', 1))    
+        if not chunks:    
+             return JsonResponse({'error': 'Données non trouvées'}, status=404)    
+    
+        headers = chunks[0]['headers']    
+        csv_data = []    
+        for chunk in chunks:    
+            csv_data.extend(chunk['data'])   
+              
+        # Utiliser votre DataQualityEngine existante    
+        gemini_api_key = os.getenv('GEMINI_API_KEY')      
+            
+        async def analyze_quality():      
+            async with GeminiClient(gemini_api_key) as gemini_client:      
+                quality_engine = DataQualityEngine(gemini_client)    
+                return await quality_engine.analyze_data_quality(csv_data, headers)  
+              
+        quality_analysis = asyncio.run(analyze_quality())      
+              
+        return render(request, 'recommendation_engine/data_quality.html', {      
+            'job_id': job_id,      
+            'quality_analysis': quality_analysis      
         })  
+  
+    def post(self, request, job_id):    
+        """Appliquer les corrections de qualité"""    
+        if not request.session.get("user_email"):    
+            return JsonResponse({'error': 'Non autorisé'}, status=401)    
+        
+        # Vérification du rôle data steward    
+        user_email = request.session.get("user_email")    
+        user = self.users.find_one({'email': user_email})    
+        
+        if not user or user.get('role') != 'user':    
+            return JsonResponse({'error': 'Accès refusé'}, status=403)    
+        
+        action = request.POST.get('action')    
+        
+        if action == 'batch_cleaning':    
+            return self._apply_batch_cleaning(request, job_id)    
+        elif action == 'remove_duplicates':    
+            return self._remove_duplicates(request, job_id)    
+        elif action == 'remove_missing_values':    
+            return self._remove_missing_values(request, job_id)    
+        elif action == 'fix_inconsistencies':    
+            return self._fix_inconsistencies(request, job_id)    
+        
+        return JsonResponse({'error': 'Action non reconnue'}, status=400)    
+    
+    def _apply_batch_cleaning(self, request, job_id):    
+        """Application de plusieurs corrections en une seule fois"""    
+        try:    
+            import json  
+            selected_actions = json.loads(request.POST.get('selected_actions', '[]'))    
+                
+            # Lire depuis les chunks - utiliser self.csv_db  
+            chunks = list(self.csv_db['csv_chunks'].find({'job_id': str(job_id)}).sort('chunk_number', 1))    
+            if not chunks:    
+                return JsonResponse({'error': 'Données non trouvées'}, status=404)    
+                
+            # Combiner toutes les données des chunks    
+            all_data = []    
+            headers = chunks[0]['headers']    
+            for chunk in chunks:    
+                all_data.extend(chunk['data'])    
+                
+            df = pd.DataFrame(all_data)    
+            original_count = len(df)    
+            total_changes = 0    
+            applied_actions = []    
+                
+            # Appliquer les actions dans l'ordre optimal    
+            if 'remove_duplicates' in selected_actions:    
+                before_count = len(df)    
+                df = df.drop_duplicates(keep='first')    
+                removed = before_count - len(df)    
+                total_changes += removed    
+                applied_actions.append(f"Doublons supprimés: {removed}")    
+                
+            if 'remove_missing_values' in selected_actions:    
+                before_count = len(df)    
+                df = df.dropna()    
+                removed = before_count - len(df)    
+                total_changes += removed    
+                applied_actions.append(f"Lignes avec valeurs manquantes supprimées: {removed}")    
+                
+            if 'fix_inconsistencies' in selected_actions:    
+                applied_actions.append("Incohérences corrigées")    
+                
+            # Re-sauvegarder en chunks    
+            self._save_cleaned_data_as_chunks(job_id, headers, df.to_dict('records'))    
+                
+            return JsonResponse({    
+                'success': True,    
+                'total_changes': total_changes,    
+                'applied_actions': applied_actions,    
+                'final_count': len(df)    
+            })    
+                
+        except Exception as e:    
+            return JsonResponse({'error': str(e)}, status=500)    
+  
+    def _remove_missing_values(self, request, job_id):    
+        """Suppression des valeurs manquantes"""    
+        try:    
+            # Utiliser self.csv_db au lieu de créer une nouvelle connexion  
+            chunks = list(self.csv_db['csv_chunks'].find({'job_id': str(job_id)}).sort('chunk_number', 1))    
+            if not chunks:    
+                return JsonResponse({'error': 'Données non trouvées'}, status=404)    
+                
+            # Combiner les données    
+            all_data = []    
+            headers = chunks[0]['headers']    
+            for chunk in chunks:    
+                all_data.extend(chunk['data'])    
+                
+            df = pd.DataFrame(all_data)    
+            original_count = len(df)    
+                
+            # Supprimer les lignes avec des valeurs manquantes    
+            df_cleaned = df.dropna()    
+            removed_count = original_count - len(df_cleaned)    
+                
+            # Re-sauvegarder en chunks    
+            self._save_cleaned_data_as_chunks(job_id, headers, df_cleaned.to_dict('records'))    
+                
+            return JsonResponse({    
+                'success': True,    
+                'removed_count': removed_count,    
+                'remaining_count': len(df_cleaned)    
+            })    
+                
+        except Exception as e:    
+            return JsonResponse({'error': str(e)}, status=500)  
+            
+    def _remove_duplicates(self, request, job_id):    
+        """Suppression des doublons avec confirmation"""    
+        duplicate_strategy = request.POST.get('duplicate_strategy', 'first')    
+        columns_to_check = request.POST.getlist('columns_to_check')    
+        
+        try:    
+            # Utiliser self.csv_db au lieu de créer une nouvelle connexion  
+            chunks = list(self.csv_db['csv_chunks'].find({'job_id': str(job_id)}).sort('chunk_number', 1))    
+            if not chunks:    
+                return JsonResponse({'error': 'Données non trouvées'}, status=404)    
+                
+            # Combiner les données    
+            all_data = []    
+            headers = chunks[0]['headers']    
+            for chunk in chunks:    
+                all_data.extend(chunk['data'])    
+                
+            df = pd.DataFrame(all_data)    
+            original_count = len(df)    
+                
+            # Supprimer les doublons    
+            if columns_to_check:    
+                df_cleaned = df.drop_duplicates(subset=columns_to_check, keep=duplicate_strategy)    
+            else:    
+                df_cleaned = df.drop_duplicates(keep=duplicate_strategy)    
+                
+            removed_count = original_count - len(df_cleaned)    
+                
+            # Re-sauvegarder en chunks    
+            self._save_cleaned_data_as_chunks(job_id, headers, df_cleaned.to_dict('records'))    
+                
+            return JsonResponse({    
+                'success': True,    
+                'removed_count': removed_count,    
+                'remaining_count': len(df_cleaned)    
+            })    
+                
+        except Exception as e:    
+            return JsonResponse({'error': str(e)}, status=500)  
+  
+    def _save_cleaned_data_as_chunks(self, job_id, headers, cleaned_data):    
+        """Re-sauvegarde les données nettoyées en chunks"""    
+        # Utiliser self.csv_db au lieu de créer une nouvelle connexion  
           
-        collection.replace_one({'job_id': str(job_id)}, job_data)  
-          
-        return JsonResponse({  
-            'success': True,  
-            'total_changes': total_changes,  
-            'applied_actions': applied_actions,  
-            'final_count': len(df)  
-        })  
-          
-     except Exception as e:  
-        return JsonResponse({'error': str(e)}, status=500)
-
-    def _remove_missing_values(self, request, job_id):  
-     """Suppression des valeurs manquantes"""  
-     try:  
-        # Récupérer les données  
-        client = MongoClient('mongodb://mongodb:27017/')  
-        csv_db = client['csv_anonymizer_db']  
-        collection = csv_db['csv_data']  
-          
-        job_data = collection.find_one({'job_id': str(job_id)})  
-        if not job_data:  
-            return JsonResponse({'error': 'Données non trouvées'}, status=404)  
-          
-        # Appliquer la suppression des valeurs manquantes  
-        df = pd.DataFrame(job_data['data'])  
-        original_count = len(df)  
-          
-        # Supprimer les lignes avec des valeurs manquantes  
-        df_cleaned = df.dropna()  
-        removed_count = original_count - len(df_cleaned)  
-          
-        # Sauvegarder les données nettoyées  
-        job_data['data'] = df_cleaned.to_dict('records')  
-        job_data['quality_actions'] = job_data.get('quality_actions', [])  
-        job_data['quality_actions'].append({  
-            'action': 'remove_missing_values',  
-            'timestamp': datetime.now(),  
-            'removed_count': removed_count  
-        })  
-          
-        collection.replace_one({'job_id': str(job_id)}, job_data)  
-          
-        return JsonResponse({  
-            'success': True,  
-            'removed_count': removed_count,  
-            'remaining_count': len(df_cleaned)  
-        })  
-          
-     except Exception as e:  
-        return JsonResponse({'error': str(e)}, status=500)
-      
-    def _remove_duplicates(self, request, job_id):  
-     """Suppression des doublons avec confirmation"""  
-    # Utiliser des valeurs par défaut appropriées  
-     duplicate_strategy = request.POST.get('duplicate_strategy', 'first')  # 'first' au lieu de 'keep_first'  
-     columns_to_check = request.POST.getlist('columns_to_check')  
-      
-     try:  
-        # Récupérer les données  
-        client = MongoClient('mongodb://mongodb:27017/')  
-        csv_db = client['csv_anonymizer_db']  
-        collection = csv_db['csv_data']  
-          
-        job_data = collection.find_one({'job_id': str(job_id)})  
-        if not job_data:  
-            return JsonResponse({'error': 'Données non trouvées'}, status=404)  
-          
-        # Appliquer la suppression des doublons  
-        df = pd.DataFrame(job_data['data'])  
-        original_count = len(df)  
-          
-        # Supprimer les doublons avec la bonne stratégie  
-        if columns_to_check:  
-            df_cleaned = df.drop_duplicates(subset=columns_to_check, keep=duplicate_strategy)  
-        else:  
-            df_cleaned = df.drop_duplicates(keep=duplicate_strategy)  
-          
-        removed_count = original_count - len(df_cleaned)  
-          
-        # Sauvegarder les données nettoyées  
-        job_data['data'] = df_cleaned.to_dict('records')  
-        job_data['quality_actions'] = job_data.get('quality_actions', [])  
-        job_data['quality_actions'].append({  
-            'action': 'remove_duplicates',  
-            'timestamp': datetime.now(),  
-            'removed_count': removed_count,  
-            'strategy': duplicate_strategy  
-        })  
-          
-        collection.replace_one({'job_id': str(job_id)}, job_data)  
-          
-        return JsonResponse({  
-            'success': True,  
-            'removed_count': removed_count,  
-            'remaining_count': len(df_cleaned)  
-        })  
-          
-     except Exception as e:  
-        # Log l'erreur pour le débogage  
-        print(f"Erreur dans _remove_duplicates: {str(e)}")  
-        return JsonResponse({'error': str(e)}, status=500)
+        # Supprimer les anciens chunks    
+        self.csv_db['csv_chunks'].delete_many({'job_id': str(job_id)})    
+            
+        # Re-créer les chunks avec les données nettoyées    
+        chunk_size = 1000    
+        for i in range(0, len(cleaned_data), chunk_size):    
+            chunk_data = cleaned_data[i:i + chunk_size]    
+            chunk_doc = {    
+                'job_id': str(job_id),    
+                'chunk_number': i // chunk_size,    
+                'headers': headers,    
+                'data': chunk_data,    
+                'created_at': datetime.now()    
+            }    
+            self.csv_db['csv_chunks'].insert_one(chunk_doc)

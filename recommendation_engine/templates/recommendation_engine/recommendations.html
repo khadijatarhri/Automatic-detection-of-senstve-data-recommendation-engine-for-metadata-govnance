@@ -1,206 +1,222 @@
-{% load static %}  
-<!DOCTYPE html>  
-<html lang="fr">  
-<head>  
-    <meta charset="UTF-8">  
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">  
-    <title>Recommandations IA - Gouvernance des Données</title>  
-    <link rel="stylesheet" href="{% static 'css/dist/styles.css' %}" />  
-    <script src="https://cdn.tailwindcss.com"></script>  
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">  
-</head>  
-<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">  
-    <!-- Navigation -->  
-    {% include 'csv_anonymizer/navigationmenuBar.html' %}  
+{% load static %}    
+<!DOCTYPE html>    
+<html lang="fr">    
+<head>    
+    <meta charset="UTF-8">    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">    
+    <title>Recommandations IA - Gouvernance des Données</title>    
+    <link rel="stylesheet" href="{% static 'css/dist/styles.css' %}" />    
+    <script src="https://cdn.tailwindcss.com"></script>    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">    
+</head>    
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">    
+    <!-- Navigation -->    
+    {% include 'csv_anonymizer/navigationmenuBar.html' %}    
+    
+    <div class="container mx-auto px-4 py-8 mt-20">    
+        <!-- Header Section -->    
+        <div class="text-center mb-12">    
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mb-4">    
+                <i class="fas fa-brain text-white text-2xl"></i>    
+            </div>    
+            <h1 class="text-4xl font-bold text-gray-800 mb-4">    
+                Recommandations Enterprise IA    
+            </h1>    
+            <p class="text-xl text-gray-600 max-w-2xl mx-auto">    
+                Analyse intelligente structurée par catégories business pour une gouvernance optimale    
+            </p>    
+        </div>    
+    
+        <!-- Stats Cards Enterprise -->    
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">    
+            <div class="bg-white rounded-xl shadow-lg p-6 border-l-4 border-blue-500">    
+                <div class="flex items-center">    
+                    <div class="flex-shrink-0">    
+                        <i class="fas fa-chart-line text-blue-500 text-2xl"></i>    
+                    </div>    
+                    <div class="ml-4">    
+                        <h3 class="text-lg font-semibold text-gray-800">Score Enterprise</h3>    
+                        <p class="text-3xl font-bold text-blue-600">{{ overall_score|floatformat:1 }}/10</p>    
+                    </div>    
+                </div>    
+            </div>    
+                
+            <div class="bg-white rounded-xl shadow-lg p-6 border-l-4 border-red-500">    
+                <div class="flex items-center">    
+                    <div class="flex-shrink-0">    
+                        <i class="fas fa-balance-scale text-red-500 text-2xl"></i>    
+                    </div>    
+                    <div class="ml-4">    
+                        <h3 class="text-lg font-semibold text-gray-800">Conformité</h3>    
+                        <p class="text-3xl font-bold text-red-600">{{ recommendations_by_category.COMPLIANCE|length }}</p>    
+                    </div>    
+                </div>    
+            </div>  
   
-    <div class="container mx-auto px-4 py-8 mt-20">  
-        <!-- Header Section -->  
-        <div class="text-center mb-12">  
-            <div class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mb-4">  
-                <i class="fas fa-brain text-white text-2xl"></i>  
+            <div class="bg-white rounded-xl shadow-lg p-6 border-l-4 border-orange-500">    
+                <div class="flex items-center">    
+                    <div class="flex-shrink-0">    
+                        <i class="fas fa-shield-alt text-orange-500 text-2xl"></i>    
+                    </div>    
+                    <div class="ml-4">    
+                        <h3 class="text-lg font-semibold text-gray-800">Sécurité</h3>    
+                        <p class="text-3xl font-bold text-orange-600">{{ recommendations_by_category.SECURITY|length }}</p>    
+                    </div>    
+                </div>    
             </div>  
-            <h1 class="text-4xl font-bold text-gray-800 mb-4">  
-                Recommandations IA  
-            </h1>  
-            <p class="text-xl text-gray-600 max-w-2xl mx-auto">  
-                Analyse intelligente de votre dataset avec des recommandations personnalisées pour améliorer la qualité et la conformité  
-            </p>  
-        </div>  
   
-        <!-- Stats Cards -->  
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">  
-            <div class="bg-white rounded-xl shadow-lg p-6 border-l-4 border-blue-500">  
-                <div class="flex items-center">  
-                    <div class="flex-shrink-0">  
-                        <i class="fas fa-chart-line text-blue-500 text-2xl"></i>  
-                    </div>  
-                    <div class="ml-4">  
-                        <h3 class="text-lg font-semibold text-gray-800">Score Global</h3>  
-                        <p class="text-3xl font-bold text-blue-600">{{ overall_score|floatformat:1 }}/10</p>  
-                    </div>  
-                </div>  
-            </div>  
-              
-            <div class="bg-white rounded-xl shadow-lg p-6 border-l-4 border-green-500">  
-                <div class="flex items-center">  
-                    <div class="flex-shrink-0">  
-                        <i class="fas fa-lightbulb text-green-500 text-2xl"></i>  
-                    </div>  
-                    <div class="ml-4">  
-                        <h3 class="text-lg font-semibold text-gray-800">Recommandations</h3>  
-                        <p class="text-3xl font-bold text-green-600">{{ recommendations|length }}</p>  
-                    </div>  
-                </div>  
-            </div>  
-              
-            <div class="bg-white rounded-xl shadow-lg p-6 border-l-4 border-purple-500">  
-                <div class="flex items-center">  
-                    <div class="flex-shrink-0">  
-                        <i class="fas fa-shield-alt text-purple-500 text-2xl"></i>  
-                    </div>  
-                    <div class="ml-4">  
-                        <h3 class="text-lg font-semibold text-gray-800">Conformité RGPD</h3>  
-                        <p class="text-3xl font-bold text-purple-600">{{ rgpd_score|floatformat:1 }}/10</p>  
-                    </div>  
-                </div>  
-            </div>  
-        </div>  
-
-
-
-
-        <!-- Recommendations List -->  
-        {% if recommendations %}  
-        <div class="bg-white rounded-xl shadow-lg overflow-hidden mb-8">  
-            <div class="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-4">  
-                <h2 class="text-2xl font-bold text-white flex items-center">  
-                    <i class="fas fa-magic mr-3"></i>  
-                    Recommandations Intelligentes  
-                </h2>  
-            </div>  
-              
-            <div class="p-6">  
-                {% for recommendation in recommendations %}  
-                <div class="mb-6 p-6 border border-gray-200 rounded-lg hover:shadow-md transition-shadow duration-300">  
-                    <!-- Priority Badge -->  
-                    <div class="flex items-start justify-between mb-4">  
-                        <div class="flex items-center">  
-                            {% if recommendation.priority >= 8 %}  
-                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">  
-                                    <i class="fas fa-exclamation-triangle mr-1"></i>  
-                                    Critique  
+            <div class="bg-white rounded-xl shadow-lg p-6 border-l-4 border-yellow-500">    
+                <div class="flex items-center">    
+                    <div class="flex-shrink-0">    
+                        <i class="fas fa-chart-line text-yellow-500 text-2xl"></i>    
+                    </div>    
+                    <div class="ml-4">    
+                        <h3 class="text-lg font-semibold text-gray-800">Qualité</h3>    
+                        <p class="text-3xl font-bold text-yellow-600">{{ recommendations_by_category.QUALITY|length }}</p>    
+                    </div>    
+                </div>    
+            </div>    
+        </div>    
+  
+        <!-- Onglets par Catégorie Enterprise -->    
+        <div class="bg-white rounded-xl shadow-lg overflow-hidden mb-8">    
+            <div class="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-4">    
+                <h2 class="text-2xl font-bold text-white flex items-center">    
+                    <i class="fas fa-building mr-3"></i>    
+                    Recommandations Enterprise par Catégorie    
+                </h2>    
+            </div>    
+                
+            <!-- Navigation des Onglets -->    
+            <div class="border-b border-gray-200">    
+                <nav class="-mb-px flex space-x-8 px-6" aria-label="Tabs">    
+                    <button onclick="showCategory('COMPLIANCE')"     
+                            class="category-tab active border-red-500 text-red-600 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">    
+                        <i class="fas fa-balance-scale mr-2"></i>    
+                        Conformité ({{ recommendations_by_category.COMPLIANCE|length }})    
+                    </button>    
+                    <button onclick="showCategory('SECURITY')"     
+                            class="category-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">    
+                        <i class="fas fa-shield-alt mr-2"></i>    
+                        Sécurité ({{ recommendations_by_category.SECURITY|length }})    
+                    </button>    
+                    <button onclick="showCategory('QUALITY')"     
+                            class="category-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">    
+                        <i class="fas fa-chart-line mr-2"></i>    
+                        Qualité ({{ recommendations_by_category.QUALITY|length }})    
+                    </button>    
+                    <button onclick="showCategory('GOVERNANCE')"     
+                            class="category-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">    
+                        <i class="fas fa-cog mr-2"></i>    
+                        Gouvernance ({{ recommendations_by_category.GOVERNANCE|length }})    
+                    </button>    
+                </nav>    
+            </div>    
+                
+            <!-- Contenu des Onglets -->    
+            {% for category, recs in recommendations_by_category.items %}    
+            <div id="category-{{ category }}" class="category-content p-6" style="display: {% if category == 'COMPLIANCE' %}block{% else %}none{% endif %};">    
+                {% if recs %}    
+                    {% for recommendation in recs %}    
+                    <div class="mb-4 p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow duration-300">    
+                        <div class="flex items-start justify-between mb-3">    
+                            <h3 class="text-lg font-semibold text-gray-800">{{ recommendation.title }}</h3>    
+                            <div class="flex items-center space-x-2">  
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium     
+                                    {% if recommendation.priority >= 8 %}bg-red-100 text-red-800{% elif recommendation.priority >= 6 %}bg-yellow-100 text-yellow-800{% else %}bg-green-100 text-green-800{% endif %}">    
+                                    Priorité {{ recommendation.priority }}/10    
                                 </span>  
-                            {% elif recommendation.priority >= 6 %}  
-                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">  
-                                    <i class="fas fa-exclamation-circle mr-1"></i>  
-                                    Important  
+                                <span class="text-xs text-gray-500">  
+                                    {{ recommendation.confidence|floatformat:0 }}% confiance  
                                 </span>  
-                            {% else %}  
-                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">  
-                                    <i class="fas fa-info-circle mr-1"></i>  
-                                    Modéré  
-                                </span>  
-                            {% endif %}  
-                        </div>  
-                          
-                        <div class="flex items-center text-sm text-gray-500">  
-                            <i class="fas fa-percentage mr-1"></i>  
-                            {{ recommendation.confidence|floatformat:0 }}% confiance  
-                        </div>  
-                    </div>  
-                      
-                    <!-- Category Icon -->  
-                    <div class="flex items-start mb-3">  
-                        {% if recommendation.category == "QUALITY_IMPROVEMENT" %}  
-                            <div class="flex-shrink-0 w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-4">  
-                                <i class="fas fa-chart-line text-blue-600"></i>  
                             </div>  
-                        {% elif recommendation.category == "SECURITY_ENHANCEMENT" %}  
-                            <div class="flex-shrink-0 w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center mr-4">  
-                                <i class="fas fa-shield-alt text-red-600"></i>  
-                            </div>  
-                        {% elif recommendation.category == "COMPLIANCE_RGPD" %}  
-                            <div class="flex-shrink-0 w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center mr-4">  
-                                <i class="fas fa-balance-scale text-purple-600"></i>  
-                            </div>  
-                        {% elif recommendation.category == "METADATA_ENRICHMENT" %}  
-                            <div class="flex-shrink-0 w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center mr-4">  
-                                <i class="fas fa-tags text-green-600"></i>  
-                            </div>  
-                        {% else %}  
-                            <div class="flex-shrink-0 w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center mr-4">  
-                                <i class="fas fa-cog text-gray-600"></i>  
-                            </div>  
-                        {% endif %}  
-                          
-                        <div class="flex-1">  
-                            <h3 class="text-lg font-semibold text-gray-800 mb-2">{{ recommendation.title }}</h3>  
-                            <p class="text-gray-600 leading-relaxed">{{ recommendation.description }}</p>  
-                        </div>  
-                    </div>  
-                      
-                    <!-- Priority Bar -->  
-                    <div class="mt-4">  
-                        <div class="flex items-center justify-between text-sm text-gray-600 mb-1">  
-                            <span>Priorité</span>  
-                            <span>{{ recommendation.priority }}/10</span>  
-                        </div>  
-                        <div class="w-full bg-gray-200 rounded-full h-2">  
-                            {% if recommendation.priority >= 8 %}  
-                                <div class="bg-red-500 h-2 rounded-full" style="width: {{ recommendation.priority|floatformat:0 }}0%"></div>  
-                            {% elif recommendation.priority >= 6 %}  
-                                <div class="bg-yellow-500 h-2 rounded-full" style="width: {{ recommendation.priority|floatformat:0 }}0%"></div>  
-                            {% else %}  
-                                <div class="bg-green-500 h-2 rounded-full" style="width: {{ recommendation.priority|floatformat:0 }}0%"></div>  
-                            {% endif %}  
-                        </div>  
-                    </div>  
-                </div>  
-                {% endfor %}  
-            </div>  
-        </div>  
-        {% else %}  
-        <!-- No Recommendations -->  
-        <div class="bg-white rounded-xl shadow-lg p-12 text-center">  
-            <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">  
-                <i class="fas fa-check-circle text-gray-400 text-2xl"></i>  
-            </div>  
-            <h3 class="text-xl font-semibold text-gray-800 mb-2">Aucune recommandation</h3>  
-            <p class="text-gray-600">Votre dataset semble être en bon état ! Aucune amélioration critique n'est nécessaire pour le moment.</p>  
-        </div>  
+                        </div>    
+                        <p class="text-gray-600 mb-3">{{ recommendation.description }}</p>    
+                            
+                        <!-- Actions Recommandées -->    
+                        {% if recommendation.metadata.immediate_actions %}    
+                        <div class="bg-blue-50 p-3 rounded-lg">    
+                            <h4 class="font-medium text-blue-800 mb-2">Actions Immédiates :</h4>    
+                            <ul class="list-disc list-inside text-blue-700 text-sm">    
+                                {% for action in recommendation.metadata.immediate_actions %}    
+                                <li>{{ action }}</li>    
+                                {% endfor %}    
+                            </ul>    
+                        </div>    
+                        {% endif %}    
+                    </div>    
+                    {% endfor %}    
+                {% else %}    
+                <div class="text-center py-8">    
+                    <i class="fas fa-check-circle text-green-500 text-3xl mb-3"></i>    
+                    <h3 class="text-lg font-semibold text-gray-800 mb-2">Aucun problème détecté</h3>    
+                    <p class="text-gray-600">Cette catégorie ne présente aucun point d'amélioration.</p>    
+                </div>    
+                {% endif %}    
+            </div>    
+            {% endfor %}    
+        </div>    
+  
+        <!-- Résumé Global -->  
+        {% if not recommendations_by_category.COMPLIANCE and not recommendations_by_category.SECURITY and not recommendations_by_category.QUALITY and not recommendations_by_category.GOVERNANCE %}  
+        <div class="bg-white rounded-xl shadow-lg p-12 text-center">    
+            <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">    
+                <i class="fas fa-check-circle text-green-500 text-2xl"></i>    
+            </div>    
+            <h3 class="text-xl font-semibold text-gray-800 mb-2">Excellent ! Aucune recommandation critique</h3>    
+            <p class="text-gray-600">Votre dataset respecte les standards enterprise de gouvernance des données.</p>    
+        </div>    
         {% endif %}  
+    
+        <!-- Action Buttons -->    
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">    
+            <a href="{% url 'csv_anonymizer:upload' %}"     
+               class="text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-300 font-medium rounded-full text-sm px-5 py-2.5 me-2 mb-2">    
+                <i class="fas fa-upload mr-2"></i>    
+                Analyser un nouveau fichier    
+            </a>    
+                
+            <button onclick="window.print()"     
+                    class="text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-300 font-medium rounded-full text-sm px-5 py-2.5 me-2 mb-2">    
+                <i class="fas fa-print mr-2"></i>    
+                Exporter le rapport    
+            </button>    
+        </div>    
+    </div>    
+    
+    <!-- JavaScript pour interactions -->    
+    <script>    
+        // Animation d'apparition des cartes    
+        document.addEventListener('DOMContentLoaded', function() {    
+            const cards = document.querySelectorAll('.bg-white');    
+            cards.forEach((card, index) => {    
+                card.style.opacity = '0';    
+                card.style.transform = 'translateY(20px)';    
+                setTimeout(() => {    
+                    card.style.transition = 'all 0.5s ease';    
+                    card.style.opacity = '1';    
+                    card.style.transform = 'translateY(0)';    
+                }, index * 100);    
+            });    
+        });    
   
-        <!-- Action Buttons -->  
-        <div class="flex flex-col sm:flex-row gap-4 justify-center">  
-            <a href="{% url 'csv_anonymizer:upload' %}"   
-               class="text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-300 font-medium rounded-full text-sm px-5 py-2.5 me-2 mb-2 dark:bg-gray-800 dark:hover:bg-gray-700 dark:focus:ring-gray-700 dark:border-gray-700">  
-                <i class="fas fa-upload mr-2"></i>  
-                Analyser un nouveau fichier  
-            </a>  
-              
-            <button onclick="window.print()"   
-                    class="text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-300 font-medium rounded-full text-sm px-5 py-2.5 me-2 mb-2 dark:bg-gray-800 dark:hover:bg-gray-700 dark:focus:ring-gray-700 dark:border-gray-700">  
-                <i class="fas fa-print mr-2"></i>  
-                Imprimer le rapport  
-            </button>  
-        </div>  
-    </div>  
-  
-    <!-- JavaScript pour interactions -->  
-    <script>  
-        // Animation d'apparition des cartes  
-        document.addEventListener('DOMContentLoaded', function() {  
-            const cards = document.querySelectorAll('.bg-white');  
-            cards.forEach((card, index) => {  
-                card.style.opacity = '0';  
-                card.style.transform = 'translateY(20px)';  
-                setTimeout(() => {  
-                    card.style.transition = 'all 0.5s ease';  
-                    card.style.opacity = '1';  
-                    card.style.transform = 'translateY(0)';  
-                }, index * 100);  
-            });  
-        });  
-    </script>  
-</body>  
+        function showCategory(category) {    
+            // Masquer tous les contenus    
+            document.querySelectorAll('.category-content').forEach(content => {    
+                content.style.display = 'none';    
+            });    
+                
+            // Réinitialiser tous les onglets    
+            document.querySelectorAll('.category-tab').forEach(tab => {    
+                tab.className = tab.className.replace('active border-red-500 text-red-600', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300');    
+            });    
+                
+            // Afficher le contenu sélectionné    
+            document.getElementById('category-' + category).style.display = 'block';    
+                
+            // Activer l'onglet sélectionné    
+            event.target.className = event.target.className.replace('border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300', 'active border-red-500 text-red-600');    
+        }    
+    </script>    
+</body>    
 </html>

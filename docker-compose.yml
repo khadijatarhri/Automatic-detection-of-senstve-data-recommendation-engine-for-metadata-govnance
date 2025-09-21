@@ -1,43 +1,36 @@
-# =============================================================================
-# CHANGEMENTS : Ajout du réseau Kafka et variables d'environnement
-# VOS SERVICES EXISTANTS : Restent identiques
-# =============================================================================
-
 version: '3.8'
-
-# =============================================================================
-# RÉSEAUX - Garder votre réseau + ajouter Kafka
-# =============================================================================
-networks:
-  # Votre réseau HDP existant (GARDÉ TEL QUEL)
-  hdp-network:
-    external: true
-    
-  # NOUVEAU: Réseau pour communiquer avec Kafka
-  kafka-integration:
-    external: true
-    name: kafka-integration-network
 
 services:
 
-  mongodb:
-    image: mongo:latest
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    networks:
-      - hdp-network    
+
+  mongodb:  
+   image: mongo:latest  
+   ports:  
+    - "27017:27017"  
+   volumes:  
+    - mongodb_data:/data/db  
+   networks:  
+    - hdp-network  
+   healthcheck:  
+    test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]  
+    interval: 10s  
+    timeout: 5s  
+    retries: 5  
+    start_period: 30s  
+     
 
   # ===========================================================================
   # DJANGO WEB -  service existant (MODIFIÉ)
   # ===========================================================================
+
   web:
     build: .
     ports:
       - "8001:8000"
     depends_on:
-      - mongodb
+       mongodb:
+         condition: service_healthy
+      
     environment:
       # ===  VARIABLES EXISTANTES (GARDÉES) ===
       - MONGODB_HOST=mongodb
@@ -49,12 +42,15 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka-broker:29092
       - KAFKA_CONSUMER_GROUP=django-governance-group
       - KAFKA_ENABLED=true
+
+      - GEMINI_API_KEY=AIzaSyCnVTAxyObTDo4fNYeElF49EMvCGz6pLXQ
+
     volumes:
       - .:/app  # Votre volume existant
       # NOUVEAU: Monter l'extension Kafka
       - ../kafka-orchestrator/network-bridge/django-kafka-extension:/app/kafka_integration:ro
     networks:
-      - hdp-netappwork         # Votre réseau existant
+      - hdp-network         # Votre réseau existant
       - kafka-integration   # NOUVEAU: Accès à Kafka
 
   # ===========================================================================
@@ -83,8 +79,15 @@ services:
       - hdp-network
       - kafka-integration
     # COMMANDE SPÉCIALE : Lance le consumer Kafka au lieu du serveur web
-    command: ["python", "manage.py", "start_kafka_consumer"]
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
     restart: unless-stopped
 
 volumes:
   mongodb_data:  # Votre volume existant
+
+# =============================================================================
+# Réseaux créés automatiquement par Docker Compose
+# =============================================================================
+networks:
+  hdp-network: {}
+  kafka-integration: {}
