@@ -11,7 +11,10 @@ import csv
 import asyncio  
 import io    
 import traceback    
-import json        
+import json       
+import google.generativeai as genai
+import psutil
+
 from db_connections import db as main_db          
 import datetime          
 from bson import ObjectId        
@@ -40,7 +43,7 @@ collection = csv_db['csv_data']
 fs = GridFS(csv_db)
         
 class UploadCSVView(View):  
-    def get(self, request):  
+ def get(self, request):  
         if not request.session.get("user_email"):  
             return redirect('login_form')  
           
@@ -53,244 +56,507 @@ class UploadCSVView(View):
           
         return render(request, 'csv_anonymizer/upload.html')  
   
-    def post(self, request):  
-    # Vérifications d'authentification existantes  
-     print("=== DÉBUT UPLOAD CSV ===")  
-     user_email = request.session.get("user_email")  
-     print(f"User email: {user_email}")  
-      
-     if not user_email:  
-        print("ERREUR: Aucun email utilisateur trouvé")  
-        return redirect('login_form')  
-      
-     user = users.find_one({'email': user_email})  
-     print(f"Utilisateur trouvé: {user}")  
-      
-     if user and user.get('role') != 'admin':  
-        print(f"ERREUR: Rôle utilisateur incorrect: {user.get('role')}")  
-        return redirect('authapp:home')  
-      
-     csv_file = request.FILES.get('csv_file')  
-     if not csv_file:  
-        print("ERREUR: Aucun fichier CSV fourni")  
-        return render(request, 'csv_anonymizer/upload.html', {'error': 'Aucun fichier sélectionné'})  
-      
-     print(f"Fichier reçu: {csv_file.name}, taille: {csv_file.size} bytes")  
-      
-     if not csv_file.name.endswith('.csv'):  
-        print(f"ERREUR: Format de fichier incorrect: {csv_file.name}")  
-        return render(request, 'csv_anonymizer/upload.html', {'error': 'Le fichier doit être au format CSV'})  
-      
-    # Traitement par streaming  
-     print("Début traitement par streaming...")  
-     content_chunks = []  
-     chunk_count = 0  
-      
-     for chunk in csv_file.chunks():  
-        content_chunks.append(chunk.decode('utf-8'))  
-        chunk_count += 1  
-      
-     print(f"Streaming terminé: {chunk_count} chunks traités")  
-      
-     content = ''.join(content_chunks)  
-     print(f"Contenu total: {len(content)} caractères")  
-      
-     reader = csv.reader(io.StringIO(content))  
-     headers = next(reader)  
-     print(f"Headers détectés: {headers}")  
-      
-    # Stocker le fichier avec GridFS  
-     print("Stockage GridFS...")  
-     try:  
-        file_id = fs.put(  
-            io.BytesIO(content.encode('utf-8')),  
-            filename=csv_file.name,  
-            content_type='text/csv',  
-            upload_date=datetime.datetime.now()  
-        )  
-        print(f"Fichier stocké dans GridFS avec ID: {file_id}")  
-     except Exception as e:  
-        print(f"ERREUR GridFS: {e}")  
-        return render(request, 'csv_anonymizer/upload.html', {'error': f'Erreur de stockage: {e}'})  
-      
-    # Récupérer tous les data stewards  
-     print("Récupération des data stewards...")  
-     data_stewards = list(users.find({'role': 'user'}))  
-     authorized_emails = [ds['email'] for ds in data_stewards]  
-     print(f"Data stewards trouvés: {len(data_stewards)}, emails: {authorized_emails}")  
-      
-    # Créer le job  
-     print("Création du job...")  
-     job_data = {  
-        'user_email': request.session.get('user_email'),  
-        'original_filename': csv_file.name,  
-        'gridfs_file_id': file_id,  
-        'upload_date': datetime.datetime.now(),  
-        'status': 'pending',  
-        'shared_with_data_stewards': True,  
-        'authorized_users': authorized_emails  
-     }  
-      
-     try:  
-        result = main_db.anonymization_jobs.insert_one(job_data)  
-        job_id = result.inserted_id  
-        print(f"Job créé avec ID: {job_id}")  
-     except Exception as e:  
-        print(f"ERREUR création job: {e}")  
-        return render(request, 'csv_anonymizer/upload.html', {'error': f'Erreur de création du job: {e}'})  
-      
-    # Échantillonnage : analyser seulement 10 lignes  
-     print("Début échantillonnage (10 lignes)...")  
-     sample_rows = []  
-     row_count = 0  
-      
-     for i, row in enumerate(reader):  
-        if i >= 10:  
-            break  
-        row_data = {}  
-        for j, header in enumerate(headers):  
-            if j < len(row):  
-                row_data[header] = row[j]  
-        sample_rows.append(row_data)  
-        row_count += 1  
-      
-     print(f"Échantillonnage terminé: {row_count} lignes analysées")  
-     print(f"Exemple de données: {sample_rows[0] if sample_rows else 'Aucune donnée'}")  
-      
-    # Analyser seulement l'échantillon  
-     print("Début analyse des entités...")  
-     try:  
-        analyzer = create_enhanced_analyzer_engine("moroccan_entities_model_v2")  
-        semantic_analyzer = SemanticAnalyzer("moroccan_entities_model_v2")  
-        auto_tagger = IntelligentAutoTagger(analyzer, semantic_analyzer)  
-        print("Analyseurs initialisés avec succès")  
-     except Exception as e:  
-        print(f"ERREUR initialisation analyseurs: {e}")  
-        return render(request, 'csv_anonymizer/upload.html', {'error': f'Erreur d\'initialisation: {e}'})  
-      
-     detected_entities = set()  
-     entity_count = 0  
-      
-     for row_idx, row in enumerate(sample_rows):  
-        print(f"Analyse ligne {row_idx + 1}/{len(sample_rows)}")  
-        for header, value in row.items():  
-            if isinstance(value, str) and value.strip():  
-                try:  
-                    entities, tags = auto_tagger.analyze_and_tag(value, dataset_name=csv_file.name)  
-                    for entity in entities:  
-                        if entity.entity_type not in EXCLUDED_ENTITY_TYPES:  
-                            detected_entities.add(entity.entity_type)  
-                            entity_count += 1  
-                except Exception as e:  
-                    print(f"ERREUR analyse entité '{value}': {e}")  
-      
-     print(f"Analyse terminée: {entity_count} entités trouvées")  
-     print(f"Types d'entités détectées: {list(detected_entities)}")  
-      
-    # NOUVEAU : Après l'analyse des entités, sauvegarder tout le fichier en chunks  
-     print("Début sauvegarde en chunks...")  
-     reader = csv.reader(io.StringIO(content))  # Re-créer le reader  
-     headers = next(reader)  # Skip headers again  
-      
-    # Sauvegarder toutes les données en chunks  
-     chunk_size = 1000  
-     chunk_number = 0  
-     current_chunk = []  
-     total_rows = 0  
-      
-     for row in reader:  
-        current_chunk.append(row)  
-        total_rows += 1  
-          
-        if len(current_chunk) >= chunk_size:  
-            try:  
-                self._save_chunk(job_id, chunk_number, headers, current_chunk)  
-                print(f"Chunk {chunk_number} sauvegardé: {len(current_chunk)} lignes")  
-                current_chunk = []  
-                chunk_number += 1  
-            except Exception as e:  
-                print(f"ERREUR sauvegarde chunk {chunk_number}: {e}")  
-      
-    # Sauvegarder le dernier chunk  
-     if current_chunk:  
-        try:  
-            self._save_chunk(job_id, chunk_number, headers, current_chunk)  
-            print(f"Dernier chunk {chunk_number} sauvegardé: {len(current_chunk)} lignes")  
-        except Exception as e:  
-            print(f"ERREUR sauvegarde dernier chunk: {e}")  
-      
-     print(f"Sauvegarde chunks terminée: {chunk_number + 1} chunks, {total_rows} lignes totales")  
-      
-    # Générer les recommandations IA (logique existante conservée)  
-     print("=== DÉBUT GÉNÉRATION RECOMMANDATIONS ===")  
-     try:  
-        gemini_api_key = os.getenv('GEMINI_API_KEY', 'AIzaSyCnVTAxyObTDo4fNYeElF49EMvCGz6pLXQ')  
-        print(f"API Key Gemini: {gemini_api_key[:10]}...{gemini_api_key[-5:] if gemini_api_key else 'VIDE'}")  
-          
-        if not gemini_api_key or gemini_api_key == 'AIzaSyCnVTAxyObTDo4fNYeElF49EMvCGz6pLXQ':  
-            print("ATTENTION: Utilisation de l'API key par défaut")  
-          
-        async def generate_recommendations_async():  
-            print("Initialisation GeminiClient...")  
-            async with GeminiClient(gemini_api_key) as gemini_client:  
-                print("GeminiClient initialisé")  
-                recommendation_engine = EnterpriseRecommendationEngine(gemini_client)  
-                print("EnterpriseRecommendationEngine créé")  
-                  
-                # Créer le profil du dataset  
-                print("Création du profil dataset...")  
-                dataset_profile = recommendation_engine.create_dataset_profile_from_presidio(  
-                    str(job_id), detected_entities, headers, sample_rows  
-                )  
-                print(f"Profil dataset créé: {len(dataset_profile)} éléments")  
-                  
-                # Générer les recommandations structurées  
-                print("Génération des recommandations...")  
-                comprehensive_recommendations = await recommendation_engine.generate_structured_recommendations(dataset_profile)  
-                print(f"Recommandations générées: {type(comprehensive_recommendations)}")  
-                return comprehensive_recommendations  
-          
-        print(f"Début génération recommandations pour job_id: {job_id}")  
-        print(f"Entités détectées: {detected_entities}")  
-        print(f"Headers: {headers}")  
-          
-        comprehensive_recommendations = asyncio.run(generate_recommendations_async())  
-          
-        if hasattr(comprehensive_recommendations, 'recommendations'):  
-            recommendations = comprehensive_recommendations.recommendations  
-            print(f"Recommandations extraites: {len(recommendations)} items")  
-        else:  
-            print(f"ATTENTION: Format de recommandations inattendu: {type(comprehensive_recommendations)}")  
-            recommendations = []  
-          
-        print(f"Recommandations finales: {len(recommendations)}")  
-          
-        request.session['current_job_id'] = str(job_id)  
-        print(f"Job ID sauvegardé en session: {str(job_id)}")  
-          
-     except Exception as e:  
-        print(f"ERREUR DÉTAILLÉE RECOMMANDATIONS: {type(e).__name__}: {e}")  
-        import traceback  
-        traceback.print_exc()  
-        recommendations = []  
-        print("Recommandations définies comme liste vide suite à l'erreur")  
-      
-     print(f"=== RÉSULTAT FINAL ===")  
-     print(f"Job ID: {job_id}")  
-     print(f"Entités détectées: {len(detected_entities)} types")  
-     print(f"Headers: {len(headers)} colonnes")  
-     print(f"Recommandations: {len(recommendations)} items")  
-     print(f"has_recommendations sera: {len(recommendations) > 0}")  
+ def post(self, request):    
+    # Vérifications d'authentification existantes    
+    print("=== DÉBUT UPLOAD CSV ===")    
+    user_email = request.session.get("user_email")    
+    print(f"User email: {user_email}")    
+        
+    if not user_email:    
+        print("ERREUR: Aucun email utilisateur trouvé")    
+        return redirect('login_form')    
+        
+    user = users.find_one({'email': user_email})    
+    print(f"Utilisateur trouvé: {user}")    
+        
+    if user and user.get('role') != 'admin':    
+        print(f"ERREUR: Rôle utilisateur incorrect: {user.get('role')}")    
+        return redirect('authapp:home')    
+        
+    csv_file = request.FILES.get('csv_file')    
+    if not csv_file:    
+        print("ERREUR: Aucun fichier CSV fourni")    
+        return render(request, 'csv_anonymizer/upload.html', {'error': 'Aucun fichier sélectionné'})    
+        
+    print(f"Fichier reçu: {csv_file.name}, taille: {csv_file.size} bytes")    
+        
+    if not csv_file.name.endswith('.csv'):    
+        print(f"ERREUR: Format de fichier incorrect: {csv_file.name}")    
+        return render(request, 'csv_anonymizer/upload.html', {'error': 'Le fichier doit être au format CSV'})    
+        
+    # Traitement par streaming    
+    print("Début traitement par streaming...")    
+    content_chunks = []    
+    chunk_count = 0    
+        
+    for chunk in csv_file.chunks():    
+        content_chunks.append(chunk.decode('utf-8'))    
+        chunk_count += 1    
+        
+    print(f"Streaming terminé: {chunk_count} chunks traités")    
+        
+    content = ''.join(content_chunks)    
+    print(f"Contenu total: {len(content)} caractères")    
+        
+    reader = csv.reader(io.StringIO(content))    
+    headers = next(reader)    
+    print(f"Headers détectés: {headers}")    
+        
+    # Stocker le fichier avec GridFS    
+    print("Stockage GridFS...")    
+    try:    
+        file_id = fs.put(    
+            io.BytesIO(content.encode('utf-8')),    
+            filename=csv_file.name,    
+            content_type='text/csv',    
+            upload_date=datetime.datetime.now()    
+        )    
+        print(f"Fichier stocké dans GridFS avec ID: {file_id}")    
+    except Exception as e:    
+        print(f"ERREUR GridFS: {e}")    
+        return render(request, 'csv_anonymizer/upload.html', {'error': f'Erreur de stockage: {e}'})    
+        
+    # Récupérer tous les data stewards    
+    print("Récupération des data stewards...")    
+    data_stewards = list(users.find({'role': 'user'}))    
+    authorized_emails = [ds['email'] for ds in data_stewards]    
+    print(f"Data stewards trouvés: {len(data_stewards)}, emails: {authorized_emails}")    
+        
+    # Créer le job    
+    print("Création du job...")    
+    job_data = {    
+        'user_email': request.session.get('user_email'),    
+        'original_filename': csv_file.name,    
+        'gridfs_file_id': file_id,    
+        'upload_date': datetime.datetime.now(),    
+        'status': 'pending',    
+        'shared_with_data_stewards': True,    
+        'authorized_users': authorized_emails    
+    }    
+        
+    try:    
+        result = main_db.anonymization_jobs.insert_one(job_data)    
+        job_id = result.inserted_id    
+        print(f"Job créé avec ID: {job_id}")    
+    except Exception as e:    
+        print(f"ERREUR création job: {e}")    
+        return render(request, 'csv_anonymizer/upload.html', {'error': f'Erreur de création du job: {e}'})    
+        
+    # Échantillonnage : analyser seulement 10 lignes    
+    print("Début échantillonnage (10 lignes)...")    
+    sample_rows = []    
+    row_count = 0    
+        
+    for i, row in enumerate(reader):    
+        if i >= 10:    
+            break    
+        row_data = {}    
+        for j, header in enumerate(headers):    
+            if j < len(row):    
+                row_data[header] = row[j]    
+        sample_rows.append(row_data)    
+        row_count += 1    
+        
+    print(f"Échantillonnage terminé: {row_count} lignes analysées")    
+    print(f"Exemple de données: {sample_rows[0] if sample_rows else 'Aucune donnée'}")    
+        
+    # Analyser seulement l'échantillon    
+    print("Début analyse des entités...")    
+    try:    
+        analyzer = create_enhanced_analyzer_engine("moroccan_entities_model_v2")    
+        semantic_analyzer = SemanticAnalyzer("moroccan_entities_model_v2")    
+        auto_tagger = IntelligentAutoTagger(analyzer, semantic_analyzer)    
+        print("Analyseurs initialisés avec succès")    
+    except Exception as e:    
+        print(f"ERREUR initialisation analyseurs: {e}")    
+        return render(request, 'csv_anonymizer/upload.html', {'error': f'Erreur d\'initialisation: {e}'})    
+        
+    detected_entities = set()    
+    entity_count = 0    
+        
+    for row_idx, row in enumerate(sample_rows):    
+        print(f"Analyse ligne {row_idx + 1}/{len(sample_rows)}")    
+        for header, value in row.items():    
+            if isinstance(value, str) and value.strip():    
+                try:    
+                    entities, tags = auto_tagger.analyze_and_tag(value, dataset_name=csv_file.name)    
+                    for entity in entities:    
+                        if entity.entity_type not in EXCLUDED_ENTITY_TYPES:    
+                            detected_entities.add(entity.entity_type)    
+                            entity_count += 1    
+                except Exception as e:    
+                    print(f"ERREUR analyse entité '{value}': {e}")    
+        
+    print(f"Analyse terminée: {entity_count} entités trouvées")    
+    print(f"Types d'entités détectées: {list(detected_entities)}")    
+        
+    # Sauvegarder tout le fichier en chunks    
+    print("Début sauvegarde en chunks...")    
+    reader = csv.reader(io.StringIO(content))  # Re-créer le reader    
+    headers = next(reader)  # Skip headers again    
+        
+    # Sauvegarder toutes les données en chunks    
+    chunk_size = 1000    
+    chunk_number = 0    
+    current_chunk = []    
+    total_rows = 0    
+        
+    for row in reader:    
+        current_chunk.append(row)    
+        total_rows += 1    
+            
+        if len(current_chunk) >= chunk_size:    
+            try:    
+                self._save_chunk(job_id, chunk_number, headers, current_chunk)    
+                print(f"Chunk {chunk_number} sauvegardé: {len(current_chunk)} lignes")    
+                current_chunk = []    
+                chunk_number += 1    
+            except Exception as e:    
+                print(f"ERREUR sauvegarde chunk {chunk_number}: {e}")    
+        
+    # Sauvegarder le dernier chunk    
+    if current_chunk:    
+        try:    
+            self._save_chunk(job_id, chunk_number, headers, current_chunk)    
+            print(f"Dernier chunk {chunk_number} sauvegardé: {len(current_chunk)} lignes")    
+        except Exception as e:    
+            print(f"ERREUR sauvegarde dernier chunk: {e}")    
+        
+    print(f"Sauvegarde chunks terminée: {chunk_number + 1} chunks, {total_rows} lignes totales")    
+        
+    # GÉNÉRATION RECOMMANDATIONS SYNCHRONE INTÉGRÉE
+    print("=== DÉBUT GÉNÉRATION RECOMMANDATIONS SYNCHRONE ===")
+    has_recommendations = False
+    
+    try:
+        # Vérification mémoire
+        memory = psutil.virtual_memory()
+        print(f"Mémoire disponible: {memory.available // (1024**2)} MB")
+        
+        if memory.percent > 90:
+            print("ALERTE: Mémoire critique - utilisation recommandations par défaut")
+            raise Exception("Mémoire insuffisante")
+        
+        # Vérification API Key
+        gemini_api_key = os.getenv('GEMINI_API_KEY')
+        print(f"API Key: {'Configurée' if gemini_api_key else 'Manquante'}")
+        
+        if not gemini_api_key:
+            print("ERREUR: API Key manquante")
+            raise Exception("API Key manquante")
+        
+        # Import avec gestion d'erreurs
+        try:
+            import google.generativeai as genai
+            print("Import genai: OK")
+        except ImportError as e:
+            print(f"Import genai échoué: {e}")
+            raise Exception("Module genai non disponible")
+        
+        # Configuration genai
+        print("Configuration genai...")
+        genai.configure(api_key=gemini_api_key)
+        
+        # Créer une instance du client Gemini synchrone
+        class SyncGeminiClient:
+            def __init__(self, api_key):
+                self.api_key = api_key
+                self.model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            def generate_content_sync(self, prompt):
+                """Génération synchrone de contenu"""
+                try:
+                    generation_config = genai.types.GenerationConfig(
+                        candidate_count=1,
+                        max_output_tokens=2048,
+                        temperature=0.7
+                    )
+                    
+                    response = self.model.generate_content(
+                        prompt,
+                        generation_config=generation_config
+                    )
+                    
+                    if response and response.text:
+                        return response.text
+                    return None
+                except Exception as e:
+                    print(f"Erreur génération Gemini: {e}")
+                    raise
+        
+        # Initialiser le client synchrone
+        sync_client = SyncGeminiClient(gemini_api_key)
+        print("Client Gemini synchrone initialisé")
+        
+        # Créer le profil du dataset
+        print("Création du profil dataset...")
+        enterprise_engine = EnterpriseRecommendationEngine(sync_client)
+        
+        dataset_profile = enterprise_engine.create_dataset_profile_from_presidio(
+            str(job_id), 
+            detected_entities, 
+            headers, 
+            sample_rows
+        )
+        print(f"Profil dataset créé: {dataset_profile.get('name', 'Dataset')}")
+        
+        # Générer les recommandations de manière synchrone
+        print("Génération recommandations par catégorie...")
+        recommendations_by_category = {}
+        
+        print("Mode SMART: Génération sans Gemini (quota épuisé)...")
 
-      
-     return render(request, 'csv_anonymizer/select_entities.html', {  
-        'job_id': str(job_id),  
-        'detected_entities': list(detected_entities),  
-        'headers': headers,  
-        'has_recommendations': True  
-     })
+        for category in enterprise_engine.categories:
+         print(f"Génération SMART pour {category}...")
+         try:
+        # Essayer d'abord avec vos templates (si quota disponible)
+          recs = self._generate_category_recommendations_sync(
+            enterprise_engine, 
+            sync_client, 
+            dataset_profile, 
+            category
+          )
+         except Exception as e:
+          print(f"Fallback SMART pour {category}: {e}")
+        # Utiliser la génération intelligente sans Gemini
+          recs = self._generate_smart_recommendations_without_gemini(
+            enterprise_engine,
+            dataset_profile, 
+            category
+          )
+    
+         recommendations_by_category[category] = recs
+         print(f"Recommandations {category}: {len(recs)} générées")
+       
+        
+        # Formater le résultat final
+        comprehensive_recommendations = enterprise_engine._format_enterprise_output(recommendations_by_category)
+        
+        # Sauvegarder les recommandations dans MongoDB
+        print("Sauvegarde des recommandations...")
+        recommendations_data = {
+            'job_id': str(job_id),
+            'recommendations': [rec.__dict__ for rec in comprehensive_recommendations['recommendations']],
+            'category_summary': comprehensive_recommendations['category_summary'],
+            'overall_score': comprehensive_recommendations['overall_score'],
+            'created_at': datetime.datetime.now(),
+            'source': 'gemini_sync'
+        }
+        
+        main_db.job_recommendations.insert_one(recommendations_data)
+        
+        has_recommendations = len(comprehensive_recommendations['recommendations']) > 0
+        print(f"Recommandations sauvegardées: {len(comprehensive_recommendations['recommendations'])}")
+        
+    except Exception as e:
+        print(f"ERREUR génération recommandations: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        has_recommendations = False
+    
+    print(f"=== FIN GÉNÉRATION: {has_recommendations} ===")
+    
+    # Sauvegarder le job_id dans la session
+    request.session['current_job_id'] = str(job_id)
+    print(f"Job ID sauvegardé: {str(job_id)}")
+    
+    # Rendu final
+    print(f"=== RÉSULTAT FINAL ===")
+    print(f"Job ID: {job_id}")
+    print(f"Entités détectées: {len(detected_entities)} types")
+    print(f"Headers: {len(headers)} colonnes")
+    print(f"has_recommendations: {has_recommendations}")
+    
+    return render(request, 'csv_anonymizer/select_entities.html', {
+        'job_id': str(job_id),
+        'detected_entities': list(detected_entities),
+        'headers': headers,
+        'has_recommendations': has_recommendations
+    })
 
-    def _process_file_by_chunks(self, file_id, job_id, filename, request):  
+ def _generate_category_recommendations_sync(self, enterprise_engine, sync_client, dataset_profile, category):
+    """Génère des recommandations pour une catégorie de manière synchrone"""
+    try:
+        # Essayer plusieurs imports possibles
+        try:
+            from csv_anonymizer.recommendation_templates import ENTERPRISE_TEMPLATES
+        except ImportError:
+            from .recommendation_templates import ENTERPRISE_TEMPLATES
+    except ImportError:
+        print(f"ERREUR IMPORT: Impossible d'importer recommendation_templates")
+        # Utiliser les recommandations par défaut
+        return enterprise_engine._create_default_recommendations(category, dataset_profile)
+    
+    template = ENTERPRISE_TEMPLATES.get(category, "")
+    
+    if not template:
+        print(f"Pas de template pour {category}, utilisation des recommandations par défaut")
+        return enterprise_engine._create_default_recommendations(category, dataset_profile)
+    
+    # Préparer les données pour le template
+    template_data = enterprise_engine._prepare_template_data(dataset_profile, category)
+    prompt = template.format(**template_data)
+    
+    try:
+        # Générer avec Gemini de manière synchrone
+        print(f"Appel Gemini pour {category}...")
+        response = sync_client.generate_content_sync(prompt)
+        
+        if response:
+            print(f"Réponse Gemini reçue pour {category}: {len(response)} caractères")
+            # Parser la réponse
+            return enterprise_engine._parse_gemini_response(response, category, dataset_profile)
+        else:
+            print(f"Pas de réponse Gemini pour {category}")
+            return enterprise_engine._create_default_recommendations(category, dataset_profile)
+            
+    except Exception as e:
+        print(f"Erreur appel Gemini pour {category}: {e}")
+        return enterprise_engine._create_default_recommendations(category, dataset_profile)
+    
+ def _generate_smart_recommendations_without_gemini(self, enterprise_engine, dataset_profile, category):
+    """Génère des recommandations intelligentes basées sur l'analyse des données sans appeler Gemini"""
+    from datetime import datetime
+    from .models import RecommendationItem
+    
+    detected_entities = set(dataset_profile.get('detected_entities', []))
+    quality_issues = dataset_profile.get('quality_issues', {})
+    compliance_status = dataset_profile.get('compliance_status', {})
+    security_risks = dataset_profile.get('security_risks', {})
+    
+    recommendations = []
+    
+    if category == 'COMPLIANCE':
+        # Simuler la réponse JSON que Gemini aurait donnée
+        compliance_score = compliance_status.get('compliance_score', 5.0)
+        has_personal_data = bool(detected_entities & {'PERSON', 'EMAIL_ADDRESS', 'PHONE_NUMBER', 'ID_MAROC'})
+        
+        if has_personal_data:
+            # Recommandation principale RGPD
+            rec = RecommendationItem(
+                id=f"compliance_{dataset_profile.get('dataset_id')}_rgpd_smart",
+                title="Conformité RGPD - Documentation obligatoire",
+                description=f"Entités personnelles détectées: {', '.join(detected_entities & {'PERSON', 'EMAIL_ADDRESS', 'PHONE_NUMBER', 'ID_MAROC'})}. Actions immédiates: 1) Tenir un registre des traitements (art. 30 RGPD), 2) Informer les personnes concernées (art. 13-14), 3) Mettre en place les droits (art. 15-22), 4) Désigner un DPO si requis (art. 37).",
+                category="COMPLIANCE",
+                priority=9.2,
+                confidence=0.95,
+                metadata={
+                    'compliance_score': compliance_score,
+                    'critical_gaps': ["Registre des traitements manquant", "Information des personnes insuffisante", "Droits RGPD non implémentés"],
+                    'immediate_actions': ["Créer registre RGPD", "Rédiger mentions d'information", "Implémenter droit d'accès"],
+                    'regulatory_risk': 'HIGH',
+                    'color': 'red',
+                    'entities_detected': list(detected_entities & {'PERSON', 'EMAIL_ADDRESS', 'PHONE_NUMBER', 'ID_MAROC'}),
+                    'source': 'smart_analysis'
+                },
+                created_at=datetime.now()
+            )
+            recommendations.append(rec)
+            
+            # Recommandation sur les bases légales
+            rec2 = RecommendationItem(
+                id=f"compliance_{dataset_profile.get('dataset_id')}_legal_basis",
+                title="Bases légales du traitement à définir",
+                description="Chaque traitement de données personnelles doit avoir une base légale claire (art. 6 RGPD). Identifier si: consentement, contrat, obligation légale, intérêt vital, mission de service public, ou intérêt légitime.",
+                category="COMPLIANCE",
+                priority=8.5,
+                confidence=0.90,
+                metadata={
+                    'color': 'orange',
+                    'regulatory_requirement': 'RGPD Article 6',
+                    'source': 'smart_analysis'
+                },
+                created_at=datetime.now()
+            )
+            recommendations.append(rec2)
+    
+    elif category == 'SECURITY':
+        risk_level = security_risks.get('risk_level', 'MEDIUM')
+        high_risk_entities = security_risks.get('high_risk_entities', [])
+        
+        if detected_entities & {'ID_MAROC', 'CREDIT_CARD', 'IBAN_CODE'} or risk_level == 'HIGH':
+            rec = RecommendationItem(
+                id=f"security_{dataset_profile.get('dataset_id')}_encryption_smart",
+                title="Chiffrement obligatoire - Données critiques détectées",
+                description=f"Entités à haut risque: {', '.join(high_risk_entities)}. Mesures de sécurité requises: 1) Chiffrement AES-256 au repos, 2) TLS 1.3 en transit, 3) Gestion des clés sécurisée (HSM/KMS), 4) Contrôles d'accès stricts (RBAC), 5) Audit trail complet, 6) Tests de pénétration réguliers.",
+                category="SECURITY",
+                priority=8.8,
+                confidence=0.93,
+                metadata={
+                    'risk_level': risk_level,
+                    'encryption_needs': list(detected_entities & {'ID_MAROC', 'CREDIT_CARD', 'IBAN_CODE', 'EMAIL_ADDRESS'}),
+                    'access_controls': ["Authentification multi-facteurs", "Contrôle d'accès basé sur les rôles", "Chiffrement de bout en bout"],
+                    'color': 'red',
+                    'security_standards': ['ISO 27001', 'NIST Cybersecurity Framework'],
+                    'immediate_actions': ['Audit de sécurité', 'Plan de chiffrement', 'Politique d\'accès'],
+                    'source': 'smart_analysis'
+                },
+                created_at=datetime.now()
+            )
+            recommendations.append(rec)
+    
+    elif category == 'QUALITY':
+        missing_pct = quality_issues.get('missing_percentage', 0)
+        duplicate_count = quality_issues.get('duplicate_rows', 0)
+        quality_score = max(1, 10 - missing_pct/5 - duplicate_count/10)
+        
+        if missing_pct > 5 or duplicate_count > 0:
+            rec = RecommendationItem(
+                id=f"quality_{dataset_profile.get('dataset_id')}_improvement_smart",
+                title=f"Amélioration qualité requise - Score {quality_score:.1f}/10",
+                description=f"Analyse détaillée: {missing_pct:.1f}% valeurs manquantes, {duplicate_count} doublons détectés. Plan d'amélioration: 1) Validation automatisée des formats, 2) Règles de complétude, 3) Déduplication intelligente, 4) Monitoring qualité en continu, 5) Alertes qualité automatiques.",
+                category="QUALITY",
+                priority=7.0 if missing_pct > 15 else 6.0,
+                confidence=0.85,
+                metadata={
+                    'quality_score': quality_score,
+                    'data_issues': [f"Valeurs manquantes: {missing_pct:.1f}%", f"Doublons: {duplicate_count}"],
+                    'improvement_actions': ["Validation des formats", "Nettoyage des doublons", "Règles de complétude", "Monitoring continu"],
+                    'color': 'yellow',
+                    'data_profiling': {
+                        'missing_percentage': missing_pct,
+                        'duplicate_count': duplicate_count,
+                        'consistency': quality_issues.get('data_consistency', 'unknown')
+                    },
+                    'source': 'smart_analysis'
+                },
+                created_at=datetime.now()
+            )
+            recommendations.append(rec)
+    
+    elif category == 'GOVERNANCE':
+        headers_count = len(dataset_profile.get('headers', []))
+        total_rows = dataset_profile.get('total_rows', 0)
+        
+        if headers_count > 5:
+            governance_score = min(8, max(3, 8 - headers_count/5))
+            rec = RecommendationItem(
+                id=f"governance_{dataset_profile.get('dataset_id')}_documentation_smart",
+                title=f"Gouvernance des données - Complexité élevée détectée",
+                description=f"Dataset complexe: {headers_count} colonnes, {total_rows:,} lignes. Gouvernance requise: 1) Catalogue de données avec métadonnées, 2) Définition des propriétaires de données, 3) Classifications de sensibilité, 4) Règles de rétention, 5) Workflows d'approbation, 6) Traçabilité des modifications.",
+                category="GOVERNANCE",
+                priority=6.5,
+                confidence=0.80,
+                metadata={
+                    'governance_score': governance_score,
+                    'missing_metadata': ["Description des colonnes", "Propriétaires des données", "Classifications", "Règles de rétention"],
+                    'governance_actions': ["Créer catalogue de données", "Documenter métadonnées", "Définir ownership", "Implémenter classifications"],
+                    'color': 'blue',
+                    'complexity_indicators': {
+                        'columns': headers_count,
+                        'rows': total_rows,
+                        'entities_variety': len(detected_entities)
+                    },
+                    'source': 'smart_analysis'
+                },
+                created_at=datetime.now()
+            )
+            recommendations.append(rec)
+    
+    return recommendations
+
+
+ def _process_file_by_chunks(self, file_id, job_id, filename, request):  
         """Traite le fichier CSV par chunks pour éviter les problèmes de mémoire"""  
           
         # Récupérer le fichier depuis GridFS  
@@ -340,7 +606,7 @@ class UploadCSVView(View):
         # Générer les recommandations IA (préserver la fonctionnalité existante)  
         recommendations = []  
         try:  
-            gemini_api_key = os.getenv('GEMINI_API_KEY', 'AIzaSyCnVTAxyObTDo4fNYeElF49EMvCGz6pLXQ')  
+            gemini_api_key = os.getenv('GEMINI_API_KEY')  
               
             import asyncio  
             async def generate_recommendations_async():  
@@ -374,7 +640,7 @@ class UploadCSVView(View):
             'has_recommendations': len(recommendations) > 0  
         })  
   
-    def _analyze_chunk(self, chunk_data, headers, auto_tagger, filename):  
+ def _analyze_chunk(self, chunk_data, headers, auto_tagger, filename):  
         """Analyse un chunk de données"""  
         detected_entities = set()  
           
@@ -388,7 +654,7 @@ class UploadCSVView(View):
           
         return detected_entities  
   
-    def _save_chunk(self, job_id, chunk_number, headers, chunk_data):  
+ def _save_chunk(self, job_id, chunk_number, headers, chunk_data):  
         """Sauvegarde un chunk dans MongoDB"""  
         chunk_doc = {  
             'job_id': str(job_id),  
@@ -399,7 +665,7 @@ class UploadCSVView(View):
         }  
         csv_db['csv_chunks'].insert_one(chunk_doc)  
   
-    def _get_sample_data_from_chunks(self, job_id, headers):  
+ def _get_sample_data_from_chunks(self, job_id, headers):  
         """Récupère un échantillon de données depuis les chunks pour les recommandations IA"""  
         # Prendre les 10 premières lignes du premier chunk pour l'analyse IA  
         first_chunk = csv_db['csv_chunks'].find_one({'job_id': str(job_id), 'chunk_number': 0})  

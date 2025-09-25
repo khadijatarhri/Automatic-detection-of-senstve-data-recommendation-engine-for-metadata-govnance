@@ -17,7 +17,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler  
 from sklearn.preprocessing import StandardScaler  
 import re
-
+import os
 import warnings  
 warnings.filterwarnings('ignore')  
   
@@ -76,29 +76,81 @@ class RecommendationType(Enum):
   
 import google.generativeai as genai  
   
-class GeminiClient:    
-    """Client pour interagir avec l'API Gemini"""    
+
+class GeminiClient:
+    def __init__(self, api_key):
+        """Force l'utilisation de l'API Key fournie"""
+        self.api_key = api_key
         
-    def __init__(self, api_key: str):    
-        self.api_key = api_key    
-        genai.configure(api_key=api_key)    
-        self.model = genai.GenerativeModel('gemini-1.5-flash')    
-      
-    async def __aenter__(self):  
-        """Async context manager entry"""  
-        return self  
-      
-    async def __aexit__(self, exc_type, exc_val, exc_tb):  
-        """Async context manager exit"""  
-        # Clean up any resources here if needed  
-        pass  
+        # IMPORTANT: Configurer explicitement genai avec la clé API
+        genai.configure(api_key=api_key)
+        
+        # Désactiver les ADC pour éviter les conflits
+        if 'GOOGLE_APPLICATION_CREDENTIALS' in os.environ:
+            print("ATTENTION: GOOGLE_APPLICATION_CREDENTIALS détectée - suppression temporaire")
+            self.old_adc = os.environ.pop('GOOGLE_APPLICATION_CREDENTIALS')
+        else:
+            self.old_adc = None
             
-    async def generate_recommendations(self, prompt: str, max_tokens: int = 1500) -> str:    
-        """Génère des recommandations via l'API Gemini"""    
-        try:    
-            response = self.model.generate_content(prompt)    
-            return response.text    
-        except Exception as e:    
+        print(f"GeminiClient configuré avec API Key: {api_key[:10]}...{api_key[-5:]}")
+    
+    async def __aenter__(self):
+        """Context manager async - entrée"""
+        try:
+            # Tester la connexion avec l'API Key
+            self.model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            # Test simple pour valider la clé
+            test_response = await self.generate_recommendations("Test de connexion")
+            if test_response:
+                print("Connexion Gemini établie avec succès")
+            
+            return self
+        except Exception as e:
+            print(f"ERREUR initialisation Gemini: {e}")
+            raise
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Context manager async - sortie"""
+        # Restaurer les ADC si elles existaient
+        if hasattr(self, 'old_adc') and self.old_adc:
+            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = self.old_adc
+            print("GOOGLE_APPLICATION_CREDENTIALS restaurée")
+    
+    async def generate_recommendations(self, prompt):
+        """Génération avec gestion d'erreurs améliorée"""
+        try:
+            print(f"Génération Gemini avec prompt: {prompt[:100]}...")
+            
+            # Configuration du modèle avec paramètres explicites
+            generation_config = genai.types.GenerationConfig(
+                candidate_count=1,
+                max_output_tokens=2048,
+                temperature=0.7
+            )
+            
+            # Génération synchrone puis conversion async
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None, 
+                lambda: self.model.generate_content(
+                    prompt,
+                    generation_config=generation_config
+                )
+            )
+            
+            if response and response.text:
+                print(f"Réponse Gemini reçue: {len(response.text)} caractères")
+                return response.text
+            else:
+                print("Réponse Gemini vide")
+                return None
+                
+        except Exception as e:
+            print(f"ERREUR génération Gemini: {e}")
+            # Log détaillé de l'erreur
+            import traceback
+            traceback.print_exc()
             raise Exception(f"Erreur API Gemini: {e}")
 # =============================================================================  
 # MOTEUR DE RECOMMANDATION INTELLIGENT AVEC ML INTRA-FICHIER  

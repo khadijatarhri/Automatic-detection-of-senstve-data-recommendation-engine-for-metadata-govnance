@@ -83,4 +83,6 @@ pytest==7.4.3
 pytest-django==4.7.0
 pyapacheatlas==0.16.0  
 kafka-python==2.0.2  
+psutil==5.9.0  
+
 

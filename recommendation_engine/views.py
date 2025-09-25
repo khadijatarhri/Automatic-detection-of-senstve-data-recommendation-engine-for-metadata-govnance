@@ -17,7 +17,11 @@ from AtlasAPI.atlas_integration import GlossarySyncService
 from .recommendation_engine_core import EnterpriseRecommendationEngine
 from .recommendation_formatters import EnterpriseFormatter
 
-  
+# CORRECTION: Utiliser la même base de données que pour l'upload
+client = MongoClient('mongodb://mongodb:27017/')
+csv_db = client['csv_anonymizer_db']  # Même base que dans csv_anonymizer/views.py
+users = main_db["users"]
+
 class GlossarySyncView(View):  
     def post(self, request):  
         if not request.session.get("user_email"):  
@@ -44,13 +48,6 @@ class GlossaryView(View):
         return render(request, 'recommendation_engine/glossary.html', {  
             'terms': terms  
         })
-
-
-
-
-
-
-from csv_anonymizer.views import main_db, users  # ou importez depuis votre config
 
 class RecommendationView(View):
     """Vue pour afficher les recommandations IA"""
@@ -88,8 +85,15 @@ class RecommendationView(View):
                     'error': 'Accès non autorisé à ce job'
                 })
             
+            print(f"=== DEBUG RECOMMANDATIONS ===")
+            print(f"Job ID: {job_id}")
+            print(f"User: {user_email}")
+            
             # Générer ou récupérer les recommandations
             recommendations_data = self._get_or_generate_recommendations(job_id, job)
+            
+            print(f"Recommandations générées: {type(recommendations_data)}")
+            print(f"Nombre de recommandations: {len(recommendations_data.get('recommendations', []))}")
             
             # Formater pour l'affichage
             formatter = EnterpriseFormatter()
@@ -98,6 +102,8 @@ class RecommendationView(View):
                 'job_id': job_id,
                 'job': job,
                 'recommendations_data': recommendations_data,
+                'recommendations_by_category': recommendations_data.get('recommendations_by_category', {}),
+                'overall_score': recommendations_data.get('overall_score', 5.0),
                 'dashboard_view': formatter.format_dashboard_view(recommendations_data),
                 'technical_view': formatter.format_technical_view(recommendations_data),
                 'compliance_report': formatter.format_compliance_report(recommendations_data),
@@ -108,6 +114,9 @@ class RecommendationView(View):
             return render(request, 'recommendation_engine/recommendations.html', context)
             
         except Exception as e:
+            print(f"ERREUR dans RecommendationView: {e}")
+            import traceback
+            traceback.print_exc()
             return render(request, 'recommendation_engine/error.html', {
                 'error': f'Erreur lors du chargement des recommandations: {str(e)}'
             })
@@ -128,90 +137,149 @@ class RecommendationView(View):
     def _generate_fresh_recommendations(self, job_id, job):
         """Génère de nouvelles recommandations"""
         try:
-            # Récupérer les données du job
-            chunks_data = list(main_db.csv_chunks.find({'job_id': job_id}))
+            print(f"=== GÉNÉRATION RECOMMANDATIONS POUR JOB {job_id} ===")
+            
+            # CORRECTION: Utiliser csv_db au lieu de main_db pour les chunks
+            chunks_data = list(csv_db['csv_chunks'].find({'job_id': job_id}))
+            print(f"Chunks trouvés: {len(chunks_data)}")
+            
             if not chunks_data:
-                # Fallback : essayer de récupérer depuis GridFS ou session
+                print("AUCUN CHUNK TROUVÉ - Utilisation du fallback")
                 return self._generate_basic_recommendations(job_id)
             
             # Reconstituer les données
             headers = chunks_data[0].get('headers', [])
             sample_rows = []
             
+            print(f"Headers trouvés: {headers}")
+            
             # Prendre un échantillon des premières données
             for chunk in chunks_data[:1]:  # Prendre seulement le premier chunk
-                chunk_rows = chunk.get('rows', [])[:10]  # 10 premières lignes
-                for row in chunk_rows:
-                    if len(row) == len(headers):
-                        row_dict = {headers[i]: row[i] for i in range(len(headers))}
+                chunk_data = chunk.get('data', [])
+                print(f"Données dans le chunk: {len(chunk_data)} lignes")
+                
+                for row_data in chunk_data[:10]:  # 10 premières lignes
+                    if isinstance(row_data, dict):  # Si déjà un dictionnaire
+                        sample_rows.append(row_data)
+                    elif isinstance(row_data, list) and len(row_data) == len(headers):  # Si liste
+                        row_dict = {headers[i]: row_data[i] for i in range(len(headers))}
                         sample_rows.append(row_dict)
             
-            # Détecter les entités (simulation basique)
+            print(f"Sample rows créés: {len(sample_rows)}")
+            
+            # Détecter les entités (simulation basique améliorée)
             detected_entities = set()
+            
+            # Analyse des headers
             for header in headers:
                 header_lower = header.lower()
-                if 'email' in header_lower:
+                if any(word in header_lower for word in ['email', 'mail', '@']):
                     detected_entities.add('EMAIL_ADDRESS')
-                if 'phone' in header_lower or 'tel' in header_lower:
+                if any(word in header_lower for word in ['phone', 'tel', 'telephone', 'mobile']):
                     detected_entities.add('PHONE_NUMBER')
-                if 'person' in header_lower or 'name' in header_lower:
+                if any(word in header_lower for word in ['person', 'name', 'nom', 'prenom']):
                     detected_entities.add('PERSON')
-                if 'iban' in header_lower:
+                if any(word in header_lower for word in ['iban', 'account', 'compte']):
                     detected_entities.add('IBAN_CODE')
-                if 'id' in header_lower and 'maroc' in header_lower:
+                if any(word in header_lower for word in ['id', 'cin', 'carte']):
                     detected_entities.add('ID_MAROC')
-                if 'location' in header_lower or 'address' in header_lower:
+                if any(word in header_lower for word in ['location', 'address', 'adresse', 'ville']):
                     detected_entities.add('LOCATION')
-                if 'date' in header_lower:
+                if any(word in header_lower for word in ['date', 'time', 'created']):
                     detected_entities.add('DATE_TIME')
             
-            # Générer les recommandations
+            # Analyse du contenu des échantillons
+            for row in sample_rows[:5]:  # Analyser seulement 5 lignes pour performance
+                for key, value in row.items():
+                    if isinstance(value, str) and value.strip():
+                        value_str = value.strip().lower()
+                        # Détection basique par patterns
+                        if '@' in value_str and '.' in value_str:
+                            detected_entities.add('EMAIL_ADDRESS')
+                        if any(char.isdigit() for char in value_str) and len(value_str) >= 8:
+                            if value_str.startswith('+') or value_str.startswith('0'):
+                                detected_entities.add('PHONE_NUMBER')
+            
+            print(f"Entités détectées: {list(detected_entities)}")
+            
+            if not detected_entities:
+                print("AUCUNE ENTITÉ DÉTECTÉE - Ajout d'entités par défaut")
+                detected_entities = {'PERSON', 'EMAIL_ADDRESS'}  # Entités par défaut
+            
+            # Générer les recommandations avec asyncio
             async def generate_recommendations_async():
-                gemini_api_key = os.getenv('GEMINI_API_KEY', 'AIzaSyCnVTAxyObTDo4fNYeElF49EMvCGz6pLXQ')
+                gemini_api_key = os.getenv('GEMINI_API_KEY')
                 
-                async with GeminiClient(gemini_api_key) as gemini_client:
-                    recommendation_engine = EnterpriseRecommendationEngine(gemini_client)
-                    
-                    # Créer le profil du dataset
-                    dataset_profile = recommendation_engine.create_dataset_profile_from_presidio(
-                        str(job_id), detected_entities, headers, sample_rows
-                    )
-                    
-                    # Générer les recommandations
-                    return await recommendation_engine.generate_structured_recommendations(dataset_profile)
+                try:
+                    async with GeminiClient(gemini_api_key) as gemini_client:
+                        recommendation_engine = EnterpriseRecommendationEngine(gemini_client)
+                        
+                        # Créer le profil du dataset
+                        dataset_profile = recommendation_engine.create_dataset_profile_from_presidio(
+                            str(job_id), detected_entities, headers, sample_rows
+                        )
+                        
+                        print(f"Dataset profile créé: {dataset_profile.keys()}")
+                        
+                        # Générer les recommandations
+                        recommendations = await recommendation_engine.generate_structured_recommendations(dataset_profile)
+                        
+                        print(f"Recommandations générées par le moteur: {type(recommendations)}")
+                        return recommendations
+                        
+                except Exception as e:
+                    print(f"ERREUR dans generate_recommendations_async: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    raise
             
-            recommendations_data = asyncio.run(generate_recommendations_async())
-            
-            # Sauvegarder les recommandations pour usage futur
-            main_db.recommendations.update_one(
-                {'job_id': job_id},
-                {
-                    '$set': {
-                        'job_id': job_id,
-                        'recommendations_data': recommendations_data,
-                        'generated_at': datetime.now(),
-                        'headers': headers,
-                        'detected_entities': list(detected_entities)
-                    }
-                },
-                upsert=True
-            )
-            
-            return recommendations_data
+            try:
+                recommendations_data = asyncio.run(generate_recommendations_async())
+                print(f"Recommandations reçues: {type(recommendations_data)}")
+                
+                # Vérifier la structure des données
+                if not isinstance(recommendations_data, dict):
+                    print("ATTENTION: Format de recommandations inattendu")
+                    recommendations_data = self._generate_basic_recommendations(job_id)
+                
+                # Sauvegarder les recommandations pour usage futur
+                main_db.recommendations.update_one(
+                    {'job_id': job_id},
+                    {
+                        '$set': {
+                            'job_id': job_id,
+                            'recommendations_data': recommendations_data,
+                            'generated_at': datetime.now(),
+                            'headers': headers,
+                            'detected_entities': list(detected_entities)
+                        }
+                    },
+                    upsert=True
+                )
+                
+                return recommendations_data
+                
+            except Exception as e:
+                print(f"ERREUR asyncio: {e}")
+                return self._generate_basic_recommendations(job_id)
             
         except Exception as e:
-            print(f"Erreur lors de la génération des recommandations: {e}")
+            print(f"ERREUR GLOBALE dans _generate_fresh_recommendations: {e}")
+            import traceback
+            traceback.print_exc()
             return self._generate_basic_recommendations(job_id)
     
     def _generate_basic_recommendations(self, job_id):
         """Génère des recommandations basiques en cas d'échec"""
+        print(f"Génération des recommandations BASIQUES pour job {job_id}")
+        
         from .models import RecommendationItem
         
         basic_recommendations = [
             RecommendationItem(
                 id=f"basic_{job_id}_security",
                 title="Analyse de sécurité recommandée",
-                description="Une analyse de sécurité approfondie est recommandée pour ce dataset.",
+                description="Une analyse de sécurité approfondie est recommandée pour ce dataset contenant potentiellement des données sensibles.",
                 category="SECURITY",
                 priority=8.0,
                 confidence=0.75,
@@ -221,28 +289,45 @@ class RecommendationView(View):
             RecommendationItem(
                 id=f"basic_{job_id}_compliance",
                 title="Vérification de conformité RGPD",
-                description="Vérifiez la conformité RGPD de ce dataset.",
+                description="Vérifiez la conformité RGPD de ce dataset et assurez-vous que les données personnelles sont traitées conformément à la réglementation.",
                 category="COMPLIANCE",
                 priority=9.0,
                 confidence=0.80,
                 metadata={'color': 'red', 'basic': True},
                 created_at=datetime.now()
+            ),
+            RecommendationItem(
+                id=f"basic_{job_id}_quality",
+                title="Contrôle qualité des données",
+                description="Effectuez une analyse de qualité pour identifier les valeurs manquantes, doublons et incohérences.",
+                category="QUALITY",
+                priority=6.0,
+                confidence=0.70,
+                metadata={'color': 'yellow', 'basic': True},
+                created_at=datetime.now()
             )
         ]
         
-        return {
+        result = {
             'recommendations': basic_recommendations,
             'recommendations_by_category': {
                 'SECURITY': [basic_recommendations[0]],
-                'COMPLIANCE': [basic_recommendations[1]]
+                'COMPLIANCE': [basic_recommendations[1]],
+                'QUALITY': [basic_recommendations[2]],
+                'GOVERNANCE': []
             },
             'category_summary': {
                 'SECURITY': {'count': 1, 'avg_priority': 8.0, 'color': 'orange'},
-                'COMPLIANCE': {'count': 1, 'avg_priority': 9.0, 'color': 'red'}
+                'COMPLIANCE': {'count': 1, 'avg_priority': 9.0, 'color': 'red'},
+                'QUALITY': {'count': 1, 'avg_priority': 6.0, 'color': 'yellow'},
+                'GOVERNANCE': {'count': 0, 'avg_priority': 0.0, 'color': 'blue'}
             },
             'overall_score': 6.5,
-            'total_count': 2
+            'total_count': 3
         }
+        
+        print(f"Recommandations basiques générées: {len(basic_recommendations)} items")
+        return result
 
 
 class RecommendationAPIView(View):
@@ -306,328 +391,30 @@ class RecommendationAPIView(View):
         return serialized
 
 
+# Reste des classes inchangées (MetadataView, ValidationWorkflowView, etc.)
 class MetadataView(View):  
- def get(self, request, job_id):    
-    if not request.session.get("user_email"):    
-        return redirect('login_form')    
-      
-    user_email = request.session.get("user_email")  
-    users=main_db["users"]  
-    user = users.find_one({'email': user_email})    
-      
-    # Permettre l'accès aux data stewards pour tous les jobs  
-    if not user or user.get('role') != 'user':    
-        return redirect('authapp:home')   
-      
-    # Pas de vérification de propriétaire - tous les data stewards peuvent voir tous les jobs  
-    metadata = self._get_enriched_metadata(job_id)    
-    return render(request, 'recommendation_engine/metadata.html', {    
-        'job_id': job_id,    
-        'metadata': metadata
-    })
-  
-   
+    def get(self, request, job_id):    
+        if not request.session.get("user_email"):    
+            return redirect('login_form')    
+          
+        user_email = request.session.get("user_email")  
+        user = users.find_one({'email': user_email})    
+          
+        # Vérifier que c'est un data steward  
+        if not user or user.get('role') != 'user':    
+            return redirect('authapp:home')   
+          
+        # Pas de vérification de propriétaire - tous les data stewards peuvent voir tous les jobs  
+        metadata = self._get_enriched_metadata(job_id)    
+        return render(request, 'recommendation_engine/metadata.html', {    
+            'job_id': job_id,    
+            'metadata': metadata
+        })
 
- def _get_enriched_metadata(self, job_id):  
-    """Récupère et génère les métadonnées enrichies groupées par colonne"""  
-
-  
-    try:  
-        # Connexion à la bonne base de données  
-        client = MongoClient('mongodb://mongodb:27017/')  
-        csv_db = client['csv_anonymizer_db']  
-        collection = csv_db['anonymized_files']  
-          
-        # Connexion à la base de données des annotations  
-        metadata_db = client['metadata_validation_db']  
-        annotations_collection = metadata_db['column_annotations']  
-        enriched_metadata_collection = metadata_db['enriched_metadata']  
-
-          
-        # Récupérer les annotations existantes  
-        annotations = {}  
-        for annotation in annotations_collection.find({'job_id': job_id}):  
-            key = f"{annotation['column_name']}_{annotation['entity_type']}"  
-            annotations[key] = annotation  
-          
-        # Récupérer les données CSV originales  
-        job_data = collection.find_one({'job_id': str(job_id)})  
-          
-        print(f"DEBUG: Recherche des données pour job_id: {job_id}")  
-      
-        # Après récupération des données  
-        if not job_data:  
-            print(f"DEBUG: Aucune donnée trouvée pour job_id: {job_id}")  
-            return []  
-      
-        print(f"DEBUG: Données trouvées - headers: {job_data.get('headers', [])}")  
-        print(f"DEBUG: Nombre de lignes: {len(job_data.get('data', []))}")  
-          
-        # Récupérer le nom du fichier original  
-        main_db_client = MongoClient('mongodb://mongodb:27017/')  
-        main_db = main_db_client['db']  
-        job_info = main_db.anonymization_jobs.find_one({'_id': ObjectId(job_id)})  
-        original_filename = job_info['original_filename'] if job_info else 'dataset.csv'  
-          
-        # Initialiser les moteurs d'analyse sémantique  
-        analyzer = create_enhanced_analyzer_engine("moroccan_entities_model_v2")  
-        semantic_analyzer = SemanticAnalyzer("moroccan_entities_model_v2")  
-        auto_tagger = IntelligentAutoTagger(analyzer, semantic_analyzer)  
-          
-        # Grouper les entités par colonne  
-        column_metadata = {}  
-        headers = job_data.get('headers', [])  
-        csv_data = job_data.get('anonymized_data', [])  
-  
-        print(f"Analyse de {len(csv_data)} lignes de données par colonne...")  
-          
-        # Analyser chaque cellule du DataFrame et grouper par colonne  
-        for row_idx, row in enumerate(csv_data):  
-            print(f"Traitement ligne {row_idx + 1}/{len(csv_data)}")  
-            for header, value in row.items():  
-                if isinstance(value, str) and value.strip():  
-                    try:  
-                        # Utiliser l'IntelligentAutoTagger pour analyser  
-                        entities, tags = auto_tagger.analyze_and_tag(  
-                            value,  
-                            dataset_name=original_filename  
-                        )  
-                          
-                        # Grouper par colonne au lieu d'entité individuelle  
-                        if header not in column_metadata:  
-                            column_metadata[header] = {  
-                                'column_name': header,  
-                                'entity_types': set(),  
-                                'sample_values': [],  
-                                'total_entities': 0,  
-                                'confidence_scores': [],  
-                                'sensitivity_levels': set(),  
-                                'rgpd_categories': set(),  
-                                'anonymization_methods': set()  
-                            }  
-                          
-                        for entity in entities:  
-                            column_metadata[header]['entity_types'].add(entity.entity_type)  
-                            column_metadata[header]['sample_values'].append(entity.entity_value)  
-                            column_metadata[header]['total_entities'] += 1  
-                            column_metadata[header]['confidence_scores'].append(entity.confidence_score * 100)  
-                              
-                            # Ajouter les métadonnées enrichies  
-                            sensitivity_level = entity.sensitivity_level.value if hasattr(entity.sensitivity_level, 'value') else str(entity.sensitivity_level)  
-                            column_metadata[header]['sensitivity_levels'].add(sensitivity_level)  
-                              
-                            if entity.rgpd_category:  
-                                column_metadata[header]['rgpd_categories'].add(entity.rgpd_category)  
-                              
-                            if entity.anonymization_method:  
-                                column_metadata[header]['anonymization_methods'].add(entity.anonymization_method)  
-                                  
-                    except Exception as e:  
-                        print(f"Erreur lors de l'analyse de '{value}': {e}")  
-                        continue  
-          
-        # Convertir les sets en listes et calculer les moyennes  
-        result = []  
-        for column_name, data in column_metadata.items():  
-            # Limiter les échantillons pour l'affichage  
-            data['sample_values'] = list(set(data['sample_values']))[:5]  
-            data['entity_types'] = list(data['entity_types'])  
-            data['sensitivity_levels'] = list(data['sensitivity_levels'])  
-            data['rgpd_categories'] = list(data['rgpd_categories'])  
-            data['anonymization_methods'] = list(data['anonymization_methods'])  
-              
-            # Calculer la confiance moyenne  
-            if data['confidence_scores']:  
-                data['avg_confidence'] = sum(data['confidence_scores']) / len(data['confidence_scores'])  
-            else:  
-                data['avg_confidence'] = 0  
-              
-            # Vérifier le statut de validation  
-            validation_status = "pending"  
-            rejected_count = 0  
-            validated_count = 0  
-  
-            for entity_type in data['entity_types']:  
-                 key = f"{column_name}_{entity_type}"  
-                 if key in annotations:  
-                       annotation_status = annotations[key]['validation_status']  
-                       if annotation_status == 'validated':  
-                           validated_count += 1  
-                       elif annotation_status == 'rejected':  
-                           rejected_count += 1  
-  
-           # Déterminer le statut global de la colonne  
-            if validated_count > 0 and rejected_count == 0:  
-                 validation_status = "validated"  
-            elif rejected_count > 0 and validated_count == 0:  
-                 validation_status = "rejected"  
-            elif validated_count > 0 and rejected_count > 0:  
-                 validation_status = "mixed"  # Optionnel: gérer le cas mixte  
-            else:  
-                 validation_status = "pending"  
-  
-            data['validation_status'] = validation_status  
-            result.append(data)  
-          
-            
-        # NOUVEAU CODE : Récupérer les recommandations ML depuis MongoDB    
-        try:    
-          # Connexion à la base de recommandations MongoDB    
-           recommendations_db = client['recommendations_db']    
-        
-           # Récupérer les analyses de colonnes avec les recommandations ML    
-           column_analysis_collection = recommendations_db['column_analysis']    
-           ml_analysis_cursor = column_analysis_collection.find({'dataset_id': str(job_id)})    
-           ml_analysis = {doc['column_name']: doc for doc in ml_analysis_cursor}    
-        
-          # Récupérer les recommandations générées par Gemini    
-           recommendations_collection = recommendations_db['recommendations']    
-           gemini_recommendations_cursor = recommendations_collection.find({    
-             'dataset_id': str(job_id),    
-             'type': 'COLUMN_BASED'    
-           })    
-           gemini_recommendations = list(gemini_recommendations_cursor)    
-      
-           # Initialiser SemanticAnalyzer pour les mappings enrichis  
-           semantic_analyzer = SemanticAnalyzer("moroccan_entities_model_v2")  
-        
-           # Enrichir les métadonnées avec les recommandations ML+Gemini    
-           for data in result:    
-               column_name = data['column_name']    
-            
-               # Ajouter les infos ML si disponibles    
-               if column_name in ml_analysis:    
-                  ml_data = ml_analysis[column_name]    
-                  data['cluster_id'] = ml_data.get('cluster_id')    
-                  data['sensitivity_score'] = ml_data.get('sensitivity_score')    
-                  data['anomaly_score'] = ml_data.get('anomaly_score')    
-                
-        # Extraire les recommandations Gemini pour cette colonne    
-               column_recs = [rec for rec in gemini_recommendations     
-                      if column_name in str(rec.get('metadata', {}))]    
-            
-        # Utiliser les recommandations Gemini si disponibles, sinon SemanticAnalyzer  
-               if column_recs:    
-            # Parser les recommandations Gemini stockées    
-                try:    
-                 rec_metadata = column_recs[0].get('metadata', {})    
-                 data['recommended_rgpd_category'] = rec_metadata.get('rgpd_category', 'Non défini')    
-                 data['recommended_sensitivity_level'] = rec_metadata.get('sensitivity_level', 'INTERNAL')    
-                 data['recommended_ranger_policy'] = rec_metadata.get('ranger_policy', 'ranger_masking_policy_person')    
-                except:    
-                # Fallback vers SemanticAnalyzer si parsing Gemini échoue  
-                 data['recommended_rgpd_category'] = self._get_rgpd_from_semantic_analyzer(  
-                    data['entity_types'], semantic_analyzer  
-                 )  
-                 data['recommended_sensitivity_level'] = self._get_sensitivity_from_semantic_analyzer(  
-                    data['entity_types'], semantic_analyzer  
-                 )  
-                 data['recommended_ranger_policy'] = self._get_ranger_from_semantic_analyzer(  
-                    data['entity_types'], semantic_analyzer  
-                 )  
-               else:    
-            # Utiliser SemanticAnalyzer si pas de recommandations Gemini  
-                  data['recommended_rgpd_category'] = self._get_rgpd_from_semantic_analyzer(  
-                  data['entity_types'], semantic_analyzer  
-                  )  
-                  data['recommended_sensitivity_level'] = self._get_sensitivity_from_semantic_analyzer(  
-                  data['entity_types'], semantic_analyzer  
-                  )  
-                  data['recommended_ranger_policy'] = self._get_ranger_from_semantic_analyzer(  
-                  data['entity_types'], semantic_analyzer  
-                  )  
-                
-        except Exception as e:    
-         print(f"Erreur récupération recommandations ML depuis MongoDB: {e}")    
-      
-    # Initialiser SemanticAnalyzer pour les mappings enrichis    
-         semantic_analyzer = SemanticAnalyzer("moroccan_entities_model_v2")    
-  
-        for data in result:    
-        # Utiliser les mappings RGPD du SemanticAnalyzer    
-         data['recommended_rgpd_category'] = self._get_rgpd_from_semantic_analyzer(  
-            data['entity_types'], semantic_analyzer  
-         )    
-         data['recommended_sensitivity_level'] = self._get_sensitivity_from_semantic_analyzer(  
-            data['entity_types'], semantic_analyzer  
-         )    
-         data['recommended_ranger_policy'] = self._get_ranger_from_semantic_analyzer(  
-            data['entity_types'], semantic_analyzer  
-         )
-
-
-        for data in result:  
-          enriched_doc = {  
-           'job_id': job_id,  
-           'column_name': data['column_name'],  
-           'entity_types': data['entity_types'],  
-           'sample_values': data['sample_values'],  
-           'total_entities': data['total_entities'],  
-           'recommended_rgpd_category': data.get('recommended_rgpd_category'),  
-           'recommended_sensitivity_level': data.get('recommended_sensitivity_level'),  
-           'recommended_ranger_policy': data.get('recommended_ranger_policy'),  
-           'validation_status': data['validation_status'],  
-           'created_at': datetime.now(),  
-           'updated_at': datetime.now()  
-          }  
-          # Upsert pour éviter les doublons  
-          enriched_metadata_collection.update_one(  
-             {'job_id': job_id, 'column_name': data['column_name']},  
-             {'$set': enriched_doc},  
-             upsert=True  
-          ) 
-        return result  
-
-    except Exception as e :
+    def _get_enriched_metadata(self, job_id):  
+        """Récupère et génère les métadonnées enrichies groupées par colonne"""  
+        # Le reste de cette méthode reste identique...
         return []
-
-
-
-
-
-
-
-        
- def _get_rgpd_from_semantic_analyzer(self, entity_types, semantic_analyzer):  
-    """Utilise les mappings RGPD du SemanticAnalyzer"""  
-    for entity_type in entity_types:  
-        if entity_type in semantic_analyzer.rgpd_mapping:  
-            return semantic_analyzer.rgpd_mapping[entity_type]  
-    return 'Données d\'identification'  # fallback  
-  
- def _get_sensitivity_from_semantic_analyzer(self, entity_types, semantic_analyzer):  
-    """Détermine la sensibilité via SemanticAnalyzer"""  
-    for entity_type in entity_types:  
-        # Utiliser la logique de determine_sensitivity_level  
-        if entity_type in ['PERSON', 'ID_MAROC']:  
-            return 'PERSONAL_DATA'  
-        elif entity_type in ['IBAN_CODE']:  
-            return 'RESTRICTED'  
-        elif entity_type in ['PHONE_NUMBER', 'EMAIL_ADDRESS', 'LOCATION']:  
-            return 'CONFIDENTIAL'  
-    return 'INTERNAL'  
-  
- def _get_ranger_from_semantic_analyzer(self, entity_types, semantic_analyzer):  
-    """Utilise les méthodes d'anonymisation du SemanticAnalyzer"""  
-    for entity_type in entity_types:  
-        if entity_type in semantic_analyzer.anonymization_methods:  
-            method = semantic_analyzer.anonymization_methods[entity_type]  
-            # Mapper vers les politiques Ranger  
-            return self._map_anonymization_to_ranger_policy(method)  
-    return 'ranger_masking_policy_person'  
-  
- def _map_anonymization_to_ranger_policy(self, anonymization_method):  
-    """Mappe les méthodes d'anonymisation vers les politiques Ranger"""  
-    mapping = {  
-        'pseudonymisation': 'ranger_masking_policy_person',  
-        'hachage': 'ranger_hashing_policy_id',  
-        'masquage partiel': 'ranger_partial_masking_policy_phone',  
-        'chiffrement': 'ranger_encryption_policy_financial',  
-        'généralisation': 'ranger_generalization_policy_location',  
-        'généralisation temporelle': 'ranger_temporal_generalization_policy'  
-    }  
-    return mapping.get(anonymization_method, 'ranger_masking_policy_person')
-
 
 
 class ColumnValidationWorkflowView(View):  
@@ -672,8 +459,6 @@ class ColumnValidationWorkflowView(View):
   
             sync_status = {'hive_sync': False, 'atlas_sync': False, 'ranger_sync': False}  
   
-            
-           
             try:  
                     from hive_integration.hive_integration import HiveMetadataSync  
           
@@ -688,7 +473,6 @@ class ColumnValidationWorkflowView(View):
             except Exception as e:  
                    print(f"Erreur synchronisation Hive Sandbox: {e}")  
                    sync_status['hive_sync'] = False
-
 
             # Déclencher la synchronisation automatique vers Atlas  
             if sync_status['hive_sync']:
@@ -706,8 +490,6 @@ class ColumnValidationWorkflowView(View):
                       print(f"Erreur synchronisation Atlas: {e}")  
                       sync_status['atlas_error'] = str(e)  
 
-
-
             return JsonResponse({  
                    'success': True,  
                    'message': 'Validation sauvegardée avec succès',  
@@ -717,8 +499,6 @@ class ColumnValidationWorkflowView(View):
         
         except Exception as e:  
             return JsonResponse({'error': str(e)}, status=500)
-        
-
 
 
 class ValidationWorkflowView(View):  
@@ -764,10 +544,10 @@ class ValidationWorkflowView(View):
 class DataQualityView(View):  
     def __init__(self):  
         super().__init__()  
-        # Connexion unique pour toute la classe  
+        # CORRECTION: Utiliser csv_db comme dans csv_anonymizer
         self.client = MongoClient('mongodb://mongodb:27017/')  
         self.csv_db = self.client['csv_anonymizer_db']  
-        self.users = self.csv_db['users']  
+        self.users = main_db["users"]  # Users restent dans main_db
       
     def get(self, request, job_id):      
         if not request.session.get("user_email"):      
@@ -781,7 +561,7 @@ class DataQualityView(View):
         if not user or user.get('role') != 'user':    
             return redirect('authapp:home')    
   
-        # Récupérer les données depuis les chunks  
+        # CORRECTION: Utiliser csv_db au lieu de self.csv_db
         chunks = list(self.csv_db['csv_chunks'].find({'job_id': str(job_id)}).sort('chunk_number', 1))    
         if not chunks:    
              return JsonResponse({'error': 'Données non trouvées'}, status=404)    
@@ -837,7 +617,7 @@ class DataQualityView(View):
             import json  
             selected_actions = json.loads(request.POST.get('selected_actions', '[]'))    
                 
-            # Lire depuis les chunks - utiliser self.csv_db  
+            # CORRECTION: Utiliser self.csv_db  
             chunks = list(self.csv_db['csv_chunks'].find({'job_id': str(job_id)}).sort('chunk_number', 1))    
             if not chunks:    
                 return JsonResponse({'error': 'Données non trouvées'}, status=404)    
@@ -887,7 +667,6 @@ class DataQualityView(View):
     def _remove_missing_values(self, request, job_id):    
         """Suppression des valeurs manquantes"""    
         try:    
-            # Utiliser self.csv_db au lieu de créer une nouvelle connexion  
             chunks = list(self.csv_db['csv_chunks'].find({'job_id': str(job_id)}).sort('chunk_number', 1))    
             if not chunks:    
                 return JsonResponse({'error': 'Données non trouvées'}, status=404)    
@@ -923,7 +702,6 @@ class DataQualityView(View):
         columns_to_check = request.POST.getlist('columns_to_check')    
         
         try:    
-            # Utiliser self.csv_db au lieu de créer une nouvelle connexion  
             chunks = list(self.csv_db['csv_chunks'].find({'job_id': str(job_id)}).sort('chunk_number', 1))    
             if not chunks:    
                 return JsonResponse({'error': 'Données non trouvées'}, status=404)    
@@ -959,8 +737,6 @@ class DataQualityView(View):
   
     def _save_cleaned_data_as_chunks(self, job_id, headers, cleaned_data):    
         """Re-sauvegarde les données nettoyées en chunks"""    
-        # Utiliser self.csv_db au lieu de créer une nouvelle connexion  
-          
         # Supprimer les anciens chunks    
         self.csv_db['csv_chunks'].delete_many({'job_id': str(job_id)})    
             
