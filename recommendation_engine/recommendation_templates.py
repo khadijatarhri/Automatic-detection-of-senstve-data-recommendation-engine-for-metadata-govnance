@@ -1,3 +1,5 @@
+# recommendation_engine/recommendation_templates.py
+
 ENTERPRISE_TEMPLATES = {  
     'COMPLIANCE': """  
     Analysez la conformité RGPD du dataset et générez des recommandations PRIORITAIRES.  
@@ -6,12 +8,12 @@ ENTERPRISE_TEMPLATES = {
     Entités personnelles détectées: {personal_entities}  
     Score de conformité actuel: {compliance_score}
       
-    Répondez en JSON avec:  
+    Répondez UNIQUEMENT en JSON valide:  
     {{  
-        "compliance_score": score sur 10,  
-        "critical_gaps": ["lacune1", "lacune2"],  
-        "immediate_actions": ["action1", "action2"],  
-        "regulatory_risk": "LOW|MEDIUM|HIGH"  
+        "compliance_score": 7.5,  
+        "critical_gaps": ["Registre des traitements manquant", "Information des personnes insuffisante"],  
+        "immediate_actions": ["Créer registre RGPD", "Rédiger mentions d'information"],  
+        "regulatory_risk": "HIGH"  
     }}  
     """,  
       
@@ -22,11 +24,11 @@ ENTERPRISE_TEMPLATES = {
     Méthodes de protection actuelles: {current_protection}  
     Niveau de risque détecté: {risk_level}
       
-    Générez des recommandations de sécurité en JSON:  
+    Répondez UNIQUEMENT en JSON valide:  
     {{  
-        "risk_level": "LOW|MEDIUM|HIGH",  
-        "encryption_needs": ["colonne1", "colonne2"],  
-        "access_controls": ["contrôle1", "contrôle2"]  
+        "risk_level": "HIGH",  
+        "encryption_needs": ["EMAIL_ADDRESS", "PHONE_NUMBER"],  
+        "access_controls": ["Authentification multi-facteurs", "Contrôle d'accès basé sur les rôles"]  
     }}  
     """,  
       
@@ -38,11 +40,11 @@ ENTERPRISE_TEMPLATES = {
     Nombre de doublons: {duplicate_count}
     Cohérence des données: {data_consistency}
       
-    Répondez en JSON:  
+    Répondez UNIQUEMENT en JSON valide:  
     {{  
-        "quality_score": score sur 10,  
-        "data_issues": ["problème1", "problème2"],  
-        "improvement_actions": ["action1", "action2"]  
+        "quality_score": 6.5,  
+        "data_issues": ["Valeurs manquantes élevées", "Doublons détectés"],  
+        "improvement_actions": ["Nettoyage des données", "Validation des formats"]  
     }}  
     """,  
       
@@ -54,11 +56,11 @@ ENTERPRISE_TEMPLATES = {
     Nombre de colonnes: {headers_count}
     Statut des métadonnées: {metadata_status}
       
-    Répondez en JSON:  
+    Répondez UNIQUEMENT en JSON valide:  
     {{  
-        "governance_score": score sur 10,  
-        "missing_metadata": ["métadonnée1", "métadonnée2"],  
-        "governance_actions": ["action1", "action2"]  
+        "governance_score": 5.0,  
+        "missing_metadata": ["Description des colonnes", "Propriétaires des données"],  
+        "governance_actions": ["Créer catalogue de données", "Documenter métadonnées"]  
     }}  
     """  
 }

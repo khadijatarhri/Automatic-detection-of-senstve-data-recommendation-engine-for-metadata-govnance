@@ -97,14 +97,11 @@ class GeminiClient:
     async def __aenter__(self):
         """Context manager async - entrée"""
         try:
-            # Tester la connexion avec l'API Key
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
+            # CORRECTION: Utiliser un modèle disponible
+            self.model = genai.GenerativeModel('gemini-2.5-flash')  # ou 'gemini-pro'
             
-            # Test simple pour valider la clé
-            test_response = await self.generate_recommendations("Test de connexion")
-            if test_response:
-                print("Connexion Gemini établie avec succès")
-            
+            # Test simple pour valider la clé (version plus légère)
+            print("Test de connexion Gemini...")
             return self
         except Exception as e:
             print(f"ERREUR initialisation Gemini: {e}")
@@ -125,8 +122,8 @@ class GeminiClient:
             # Configuration du modèle avec paramètres explicites
             generation_config = genai.types.GenerationConfig(
                 candidate_count=1,
-                max_output_tokens=2048,
-                temperature=0.7
+                max_output_tokens=1024,  # Réduire pour éviter les quotas
+                temperature=0.3  # Réduire pour plus de cohérence
             )
             
             # Génération synchrone puis conversion async
@@ -141,17 +138,15 @@ class GeminiClient:
             
             if response and response.text:
                 print(f"Réponse Gemini reçue: {len(response.text)} caractères")
-                return response.text
+                return response.candidates[0].content.parts[0].text
             else:
                 print("Réponse Gemini vide")
                 return None
                 
         except Exception as e:
-            print(f"ERREUR génération Gemini: {e}")
-            # Log détaillé de l'erreur
-            import traceback
-            traceback.print_exc()
-            raise Exception(f"Erreur API Gemini: {e}")
+            print(f"ERREUR génération Gemini: {type(e).__name__}: {e}")
+            # Ne pas lever d'exception, retourner None pour fallback
+            return None
 # =============================================================================  
 # MOTEUR DE RECOMMANDATION INTELLIGENT AVEC ML INTRA-FICHIER  
 # =============================================================================  

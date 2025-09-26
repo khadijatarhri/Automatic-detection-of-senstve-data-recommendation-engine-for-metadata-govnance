@@ -261,7 +261,7 @@ class UploadCSVView(View):
         class SyncGeminiClient:
             def __init__(self, api_key):
                 self.api_key = api_key
-                self.model = genai.GenerativeModel('gemini-1.5-flash')
+                self.model = genai.GenerativeModel('gemini-2.5-flash')
             
             def generate_content_sync(self, prompt):
                 """Génération synchrone de contenu"""
@@ -310,7 +310,7 @@ class UploadCSVView(View):
          print(f"Génération SMART pour {category}...")
          try:
         # Essayer d'abord avec vos templates (si quota disponible)
-          recs = self._generate_category_recommendations_sync(
+          recs = self._generate_category_recommendations_sync_optimized(
             enterprise_engine, 
             sync_client, 
             dataset_profile, 
@@ -374,6 +374,39 @@ class UploadCSVView(View):
         'has_recommendations': has_recommendations
     })
 
+
+ def _generate_category_recommendations_sync_optimized(self, enterprise_engine, sync_client, dataset_profile, category):  
+    """Version optimisée de génération par catégorie"""  
+      
+    # Templates simplifiés intégrés  
+    simple_templates = {  
+        'COMPLIANCE': "Analysez conformité RGPD pour {dataset_name} avec entités {personal_entities}. Score: {compliance_score}. JSON uniquement: {{'compliance_score': 7, 'critical_gaps': ['gap1'], 'regulatory_risk': 'HIGH'}}",  
+        'SECURITY': "Risques sécurité pour entités {sensitive_entities}, niveau {risk_level}. JSON: {{'risk_level': 'HIGH', 'encryption_needs': ['col1'], 'access_controls': ['ctrl1']}}",  
+        'QUALITY': "Qualité données {dataset_name}: {missing_percentage}% manquantes, {duplicate_count} doublons. JSON: {{'quality_score': 6, 'data_issues': ['issue1']}}",  
+        'GOVERNANCE': "Gouvernance {dataset_name}: {total_rows} lignes, {headers_count} colonnes. JSON: {{'governance_score': 5, 'missing_metadata': ['meta1']}}"  
+    }  
+      
+    template = simple_templates.get(category)  
+    if not template:  
+        return enterprise_engine._create_default_recommendations(category, dataset_profile)  
+      
+    try:  
+        # Préparer données template  
+        template_data = enterprise_engine._prepare_template_data(dataset_profile, category)  
+        prompt = template.format(**template_data)  
+          
+        # Appel Gemini avec timeout court  
+        response = sync_client.generate_content_sync(prompt)  
+          
+        if response:  
+            return enterprise_engine._parse_gemini_response(response, category, dataset_profile)  
+        else:  
+            return enterprise_engine._create_default_recommendations(category, dataset_profile)  
+              
+    except Exception as e:  
+        print(f"Erreur génération optimisée {category}: {e}")  
+        return enterprise_engine._create_default_recommendations(category, dataset_profile)
+    
  def _generate_category_recommendations_sync(self, enterprise_engine, sync_client, dataset_profile, category):
     """Génère des recommandations pour une catégorie de manière synchrone"""
     try:

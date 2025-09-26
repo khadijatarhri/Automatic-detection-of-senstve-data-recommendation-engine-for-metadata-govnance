@@ -1,6 +1,7 @@
 from typing import Dict, List, Any    
 from datetime import datetime    
-import json    
+import json   
+import asyncio  
 from .models import RecommendationItem    
 from .recommendation_templates import ENTERPRISE_TEMPLATES    
     
@@ -122,10 +123,26 @@ class EnterpriseRecommendationEngine:
         
     async def _generate_category_recommendations(self, dataset_profile, category):    
      """Génère des recommandations pour une catégorie spécifique"""    
-     template = ENTERPRISE_TEMPLATES.get(category, "")    
     
-    # Toujours utiliser les recommandations par défaut si pas de template ou quota épuisé
+     # Essayer plusieurs chemins d'import
+     try:
+        try:
+            from .recommendation_templates import ENTERPRISE_TEMPLATES
+        except ImportError:
+            try:
+                from recommendation_engine.recommendation_templates import ENTERPRISE_TEMPLATES
+            except ImportError:
+                from csv_anonymizer.recommendation_templates import ENTERPRISE_TEMPLATES
+     except ImportError as e:
+        print(f"ERREUR IMPORT recommendation_templates: {e}")
+        # Utiliser les recommandations par défaut directement
+        return self._create_default_recommendations(category, dataset_profile)
+    
+     template = ENTERPRISE_TEMPLATES.get(category, "")    
+
+    # Si pas de template, utiliser les recommandations par défaut
      if not template:    
+        print(f"Pas de template pour {category}, utilisation recommandations par défaut")
         return self._create_default_recommendations(category, dataset_profile)  
         
     # Préparer les données pour le template    
@@ -133,14 +150,23 @@ class EnterpriseRecommendationEngine:
      prompt = template.format(**template_data)    
         
      try:  
-        # Appeler Gemini    
-        response = await self.gemini_client.generate_recommendations(prompt)    
-        # Parser la réponse JSON    
-        return self._parse_gemini_response(response, category, dataset_profile)  
+        # Appeler Gemini avec timeout plus court
+        response = await asyncio.wait_for(
+            self.gemini_client.generate_recommendations(prompt),
+            timeout=30.0  # Timeout de 30 secondes
+        )
+        
+        if response:
+            # Parser la réponse JSON    
+            return self._parse_gemini_response(response, category, dataset_profile)
+        else:
+            print(f"Pas de réponse Gemini pour {category}")
+            return self._create_default_recommendations(category, dataset_profile)
+            
      except Exception as e:  
-        print(f"Erreur lors de l'appel à Gemini pour {category}: {e}")  
+        print(f"Erreur Gemini pour {category}: {type(e).__name__}: {e}")  
         # IMPORTANT : Retourner les recommandations par défaut au lieu d'une liste vide
-        return self._create_default_recommendations(category, dataset_profile)  
+        return self._create_default_recommendations(category, dataset_profile) 
 
     def _create_default_recommendations(self, category, dataset_profile):
      """Crée des recommandations par défaut si Gemini échoue"""

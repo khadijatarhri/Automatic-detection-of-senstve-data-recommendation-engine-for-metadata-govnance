@@ -248,7 +248,15 @@ class RecommendationView(View):
                     {
                         '$set': {
                             'job_id': job_id,
-                            'recommendations_data': recommendations_data,
+                            'recommendations_data': {  
+                              'recommendations': [rec.__dict__ for rec in recommendations_data['recommendations']],  
+                              'recommendations_by_category': {  
+                              cat: [rec.__dict__ for rec in recs]   
+                              for cat, recs in recommendations_data['recommendations_by_category'].items()  
+                              },  
+                              'category_summary': recommendations_data['category_summary'],  
+                              'overall_score': recommendations_data['overall_score']  
+                            },
                             'generated_at': datetime.now(),
                             'headers': headers,
                             'detected_entities': list(detected_entities)
@@ -393,7 +401,7 @@ class RecommendationAPIView(View):
 
 # Reste des classes inchangées (MetadataView, ValidationWorkflowView, etc.)
 class MetadataView(View):  
-    def get(self, request, job_id):    
+ def get(self, request, job_id):    
         if not request.session.get("user_email"):    
             return redirect('login_form')    
           
@@ -410,11 +418,177 @@ class MetadataView(View):
             'job_id': job_id,    
             'metadata': metadata
         })
-
-    def _get_enriched_metadata(self, job_id):  
-        """Récupère et génère les métadonnées enrichies groupées par colonne"""  
-        # Le reste de cette méthode reste identique...
+ def _get_enriched_metadata(self, job_id):  
+    """Récupère et génère les métadonnées enrichies groupées par colonne"""  
+    
+    # Définir EXCLUDED_ENTITY_TYPES localement (même valeur que dans views.py)
+    EXCLUDED_ENTITY_TYPES = {    
+        'IN_PAN', 'URL', 'DOMAIN_NAME', 'NRP', 'US_BANK_NUMBER',    
+        'IN_AADHAAR', 'US_DRIVER_LICENSE', 'UK_NHS'    
+    }
+    
+    try:
+        print(f"=== GÉNÉRATION MÉTADONNÉES POUR JOB {job_id} ===")
+        
+        # 1. Récupérer les chunks de données
+        chunks_data = list(csv_db['csv_chunks'].find({'job_id': str(job_id)}))
+        print(f"Chunks trouvés: {len(chunks_data)}")
+        
+        if not chunks_data:
+            print(f"Aucun chunk trouvé pour job_id: {job_id}")
+            return []
+        
+        # 2. Extraire headers et données d'échantillon
+        headers = chunks_data[0].get('headers', [])
+        sample_data = []
+        
+        # Prendre un échantillon des données pour analyse
+        for chunk in chunks_data[:1]:  # Un seul chunk pour éviter surcharge
+            chunk_rows = chunk.get('data', [])
+            print(f"Chunk contient {len(chunk_rows)} lignes")
+            
+            for row_data in chunk_rows[:10]:  # 10 lignes max
+                if isinstance(row_data, dict):
+                    sample_data.append(row_data)
+                elif isinstance(row_data, list) and len(row_data) == len(headers):
+                    row_dict = {headers[i]: row_data[i] for i in range(len(headers))}
+                    sample_data.append(row_dict)
+        
+        print(f"Données d'échantillon: {len(sample_data)} lignes")
+        print(f"Headers: {headers}")
+        
+        if not sample_data:
+            print("Aucune donnée d'échantillon trouvée")
+            return []
+        
+        # 3. Initialiser les analyseurs (comme dans votre code existant)
+        try:
+            analyzer = create_enhanced_analyzer_engine("moroccan_entities_model_v2")
+            semantic_analyzer = SemanticAnalyzer("moroccan_entities_model_v2")
+            auto_tagger = IntelligentAutoTagger(analyzer, semantic_analyzer)
+            print("Analyseurs initialisés avec succès")
+        except Exception as e:
+            print(f"Erreur initialisation analyseurs: {e}")
+            return []
+        
+        # 4. Récupérer le nom du fichier original
+        job_record = main_db.anonymization_jobs.find_one({'_id': ObjectId(job_id)})
+        original_filename = job_record.get('original_filename', 'dataset.csv') if job_record else 'dataset.csv'
+        print(f"Fichier original: {original_filename}")
+        
+        # 5. Analyser chaque colonne
+        metadata_list = []
+        
+        for header in headers:
+            print(f"\n--- Analyse colonne: {header} ---")
+            
+            # Extraire les valeurs de cette colonne
+            column_values = []
+            for row in sample_data:
+                if header in row and row[header]:
+                    value = str(row[header]).strip()
+                    if value:
+                        column_values.append(value)
+            
+            print(f"Valeurs collectées: {len(column_values)}")
+            
+            if not column_values:
+                print(f"Aucune valeur pour la colonne {header}")
+                continue
+            
+            # Analyser les entités dans cette colonne
+            detected_entities = set()
+            sample_values = []
+            total_entities = 0
+            
+            # Analyser quelques valeurs de la colonne
+            for i, value in enumerate(column_values[:5]):
+                try:
+                    print(f"  Analyse valeur {i+1}: '{value[:50]}...'")
+                    entities, tags = auto_tagger.analyze_and_tag(value, dataset_name=original_filename)
+                    
+                    for entity in entities:
+                        if entity.entity_type not in EXCLUDED_ENTITY_TYPES:
+                            detected_entities.add(entity.entity_type)
+                            total_entities += 1
+                            print(f"    -> Entité détectée: {entity.entity_type} = '{entity.entity_value}'")
+                            
+                            # Garder un échantillon de la valeur
+                            if len(sample_values) < 3:
+                                sample_values.append(entity.entity_value)
+                                
+                except Exception as e:
+                    print(f"  Erreur analyse valeur '{value[:30]}...': {e}")
+                    continue
+            
+            print(f"Entités détectées pour {header}: {list(detected_entities)} (total: {total_entities})")
+            
+            # Si des entités ont été détectées, créer l'entrée métadonnées
+            if detected_entities:
+                # Déterminer les recommandations automatiques
+                rgpd_category = self._get_rgpd_category(detected_entities)
+                sensitivity_level = self._get_sensitivity_level(detected_entities)  
+                ranger_policy = self._get_ranger_policy(detected_entities)
+                
+                column_metadata = {
+                    'column_name': header,
+                    'entity_types': list(detected_entities),
+                    'sample_values': sample_values,
+                    'total_entities': total_entities,
+                    'recommended_rgpd_category': rgpd_category,
+                    'recommended_sensitivity_level': sensitivity_level,
+                    'recommended_ranger_policy': ranger_policy,
+                    'validation_status': 'pending'
+                }
+                
+                metadata_list.append(column_metadata)
+                print(f"Métadonnées créées pour {header}")
+        
+        print(f"\n=== RÉSULTAT: Métadonnées générées pour {len(metadata_list)} colonnes ===")
+        return metadata_list
+        
+    except Exception as e:
+        print(f"Erreur globale dans _get_enriched_metadata: {e}")
+        import traceback
+        traceback.print_exc()
         return []
+
+ def _get_rgpd_category(self, detected_entities):
+    """Détermine la catégorie RGPD basée sur les entités détectées"""
+    if any(entity in detected_entities for entity in ['PERSON', 'ID_MAROC']):
+        return "Données d'identification"
+    elif any(entity in detected_entities for entity in ['IBAN_CODE', 'CREDIT_CARD']):
+        return "Données financières"
+    elif any(entity in detected_entities for entity in ['PHONE_NUMBER', 'EMAIL_ADDRESS']):
+        return "Données de contact"
+    elif 'LOCATION' in detected_entities:
+        return "Données de localisation"
+    else:
+        return "Non défini"
+
+ def _get_sensitivity_level(self, detected_entities):
+    """Détermine le niveau de sensibilité"""
+    if any(entity in detected_entities for entity in ['PERSON', 'ID_MAROC']):
+        return "PERSONAL_DATA"
+    elif any(entity in detected_entities for entity in ['IBAN_CODE', 'CREDIT_CARD']):
+        return "RESTRICTED"
+    elif any(entity in detected_entities for entity in ['PHONE_NUMBER', 'EMAIL_ADDRESS']):
+        return "CONFIDENTIAL"
+    else:
+        return "INTERNAL"
+
+ def _get_ranger_policy(self, detected_entities):
+    """Détermine la politique Ranger"""
+    if 'PERSON' in detected_entities:
+        return "ranger_masking_policy_person"
+    elif 'ID_MAROC' in detected_entities:
+        return "ranger_hashing_policy_id"
+    elif any(entity in detected_entities for entity in ['PHONE_NUMBER', 'EMAIL_ADDRESS']):
+        return "ranger_partial_masking_policy_phone"
+    elif any(entity in detected_entities for entity in ['IBAN_CODE', 'CREDIT_CARD']):
+        return "ranger_encryption_policy_financial"
+    else:
+        return "ranger_masking_policy_person"
 
 
 class ColumnValidationWorkflowView(View):  
