@@ -6,6 +6,7 @@ from django.views import View
 from .MoteurDeRecommandationAvecDeepSeekML import GeminiClient,  DataQualityEngine
 from .models import RecommendationStorage  
 import os  
+import json
 from pymongo import MongoClient  
 from bson import ObjectId  
 from semantic_engine import SemanticAnalyzer, IntelligentAutoTagger  
@@ -16,9 +17,15 @@ from datetime import datetime
 from AtlasAPI.atlas_integration import GlossarySyncService  
 from .recommendation_engine_core import EnterpriseRecommendationEngine
 from .recommendation_formatters import EnterpriseFormatter
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+import logging
+import subprocess
+import threading
 
 # CORRECTION: Utiliser la même base de données que pour l'upload
 client = MongoClient('mongodb://mongodb:27017/')
+
 csv_db = client['csv_anonymizer_db']  # Même base que dans csv_anonymizer/views.py
 users = main_db["users"]
 
@@ -401,279 +408,280 @@ class RecommendationAPIView(View):
 
 # Reste des classes inchangées (MetadataView, ValidationWorkflowView, etc.)
 class MetadataView(View):  
- def get(self, request, job_id):    
-        if not request.session.get("user_email"):    
-            return redirect('login_form')    
-          
-        user_email = request.session.get("user_email")  
-        user = users.find_one({'email': user_email})    
-          
-        # Vérifier que c'est un data steward  
-        if not user or user.get('role') != 'user':    
-            return redirect('authapp:home')   
-          
-        # Pas de vérification de propriétaire - tous les data stewards peuvent voir tous les jobs  
-        metadata = self._get_enriched_metadata(job_id)    
-        return render(request, 'recommendation_engine/metadata.html', {    
-            'job_id': job_id,    
-            'metadata': metadata
+    def get(self, request, job_id):    
+     if not request.session.get("user_email"):    
+        return redirect('login_form')    
+      
+     user_email = request.session.get("user_email")  
+     user = users.find_one({'email': user_email})    
+      
+     if not user or user.get('role') != 'user':    
+        return redirect('authapp:home')   
+      
+     metadata = self._get_enriched_metadata(job_id)
+    
+    # AJOUT: Sérialiser pour JavaScript
+     import json
+     for meta in metadata:
+        meta['json_safe'] = json.dumps({
+            'column_name': meta['column_name'],
+            'entity_types': meta['entity_types'],
+            'validation_status': meta.get('validation_status', 'pending'),
+            'recommended_rgpd_category': meta.get('recommended_rgpd_category'),
+            'recommended_sensitivity_level': meta.get('recommended_sensitivity_level'),
+            'recommended_ranger_policy': meta.get('recommended_ranger_policy')
         })
- def _get_enriched_metadata(self, job_id):  
-    """Récupère et génère les métadonnées enrichies groupées par colonne"""  
     
-    # Définir EXCLUDED_ENTITY_TYPES localement (même valeur que dans views.py)
-    EXCLUDED_ENTITY_TYPES = {    
-        'IN_PAN', 'URL', 'DOMAIN_NAME', 'NRP', 'US_BANK_NUMBER',    
-        'IN_AADHAAR', 'US_DRIVER_LICENSE', 'UK_NHS'    
-    }
+     metadata_db = MongoClient('mongodb://mongodb:27017/')['metadata_validation_db']
+     enriched_collection = metadata_db['enriched_metadata']
     
-    try:
-        print(f"=== GÉNÉRATION MÉTADONNÉES POUR JOB {job_id} ===")
+     for meta in metadata:
+        db_meta = enriched_collection.find_one({
+            'job_id': job_id,
+            'column_name': meta['column_name']
+        })
+        if db_meta:
+            meta['atlas_sync_status'] = db_meta.get('atlas_sync_status', 'not_synced')
+            meta['atlas_sync_date'] = db_meta.get('atlas_sync_date')
+    
+     validated_count = sum(1 for m in metadata if m.get('validation_status') == "validated")
+     pending_count = sum(1 for m in metadata if m.get('validation_status') == "pending")
+     synced_count = sum(1 for m in metadata if m.get('atlas_sync_status') == "synced")
+
+     return render(request, 'recommendation_engine/metadata.html', {    
+        'job_id': job_id,    
+        'metadata': metadata,
+        'validated_count': validated_count,
+        'pending_count': pending_count,
+        'synced_count': synced_count
+     })
+    
+    def _get_enriched_metadata(self, job_id):  
+        """Récupère les métadonnées enrichies de MongoDB"""
+        logger = logging.getLogger(__name__)
         
-        # 1. Récupérer les chunks de données
-        chunks_data = list(csv_db['csv_chunks'].find({'job_id': str(job_id)}))
-        print(f"Chunks trouvés: {len(chunks_data)}")
+        EXCLUDED_ENTITY_TYPES = {    
+            'IN_PAN', 'URL', 'DOMAIN_NAME', 'NRP', 'US_BANK_NUMBER',    
+            'IN_AADHAAR', 'US_DRIVER_LICENSE', 'UK_NHS'    
+        }
         
-        if not chunks_data:
-            print(f"Aucun chunk trouvé pour job_id: {job_id}")
-            return []
-        
-        # 2. Extraire headers et données d'échantillon
-        headers = chunks_data[0].get('headers', [])
-        sample_data = []
-        
-        # Prendre un échantillon des données pour analyse
-        for chunk in chunks_data[:1]:  # Un seul chunk pour éviter surcharge
-            chunk_rows = chunk.get('data', [])
-            print(f"Chunk contient {len(chunk_rows)} lignes")
-            
-            for row_data in chunk_rows[:10]:  # 10 lignes max
-                if isinstance(row_data, dict):
-                    sample_data.append(row_data)
-                elif isinstance(row_data, list) and len(row_data) == len(headers):
-                    row_dict = {headers[i]: row_data[i] for i in range(len(headers))}
-                    sample_data.append(row_dict)
-        
-        print(f"Données d'échantillon: {len(sample_data)} lignes")
-        print(f"Headers: {headers}")
-        
-        if not sample_data:
-            print("Aucune donnée d'échantillon trouvée")
-            return []
-        
-        # 3. Initialiser les analyseurs (comme dans votre code existant)
         try:
-            analyzer = create_enhanced_analyzer_engine("moroccan_entities_model_v2")
-            semantic_analyzer = SemanticAnalyzer("moroccan_entities_model_v2")
-            auto_tagger = IntelligentAutoTagger(analyzer, semantic_analyzer)
-            print("Analyseurs initialisés avec succès")
-        except Exception as e:
-            print(f"Erreur initialisation analyseurs: {e}")
-            return []
-        
-        # 4. Récupérer le nom du fichier original
-        job_record = main_db.anonymization_jobs.find_one({'_id': ObjectId(job_id)})
-        original_filename = job_record.get('original_filename', 'dataset.csv') if job_record else 'dataset.csv'
-        print(f"Fichier original: {original_filename}")
-        
-        # 5. Analyser chaque colonne
-        metadata_list = []
-        
-        for header in headers:
-            print(f"\n--- Analyse colonne: {header} ---")
+            # Connexion à MongoDB
+            metadata_db = MongoClient('mongodb://mongodb:27017/')['metadata_validation_db']
+            enriched_collection = metadata_db['enriched_metadata']
             
-            # Extraire les valeurs de cette colonne
-            column_values = []
-            for row in sample_data:
-                if header in row and row[header]:
-                    value = str(row[header]).strip()
-                    if value:
-                        column_values.append(value)
+            # Chercher d'abord dans la base de métadonnées
+            existing_metadata = list(enriched_collection.find({'job_id': str(job_id)}))
             
-            print(f"Valeurs collectées: {len(column_values)}")
+            if existing_metadata:
+                logger.info(f"Métadonnées trouvées dans DB: {len(existing_metadata)}")
+                return existing_metadata
             
-            if not column_values:
-                print(f"Aucune valeur pour la colonne {header}")
-                continue
+            # Sinon, générer les métadonnées
+            logger.info(f"Génération métadonnées pour job {job_id}")
             
-            # Analyser les entités dans cette colonne
-            detected_entities = set()
-            sample_values = []
-            total_entities = 0
+            chunks_data = list(csv_db['csv_chunks'].find({'job_id': str(job_id)}))
             
-            # Analyser quelques valeurs de la colonne
-            for i, value in enumerate(column_values[:5]):
-                try:
-                    print(f"  Analyse valeur {i+1}: '{value[:50]}...'")
-                    entities, tags = auto_tagger.analyze_and_tag(value, dataset_name=original_filename)
-                    
-                    for entity in entities:
-                        if entity.entity_type not in EXCLUDED_ENTITY_TYPES:
-                            detected_entities.add(entity.entity_type)
-                            total_entities += 1
-                            print(f"    -> Entité détectée: {entity.entity_type} = '{entity.entity_value}'")
-                            
-                            # Garder un échantillon de la valeur
-                            if len(sample_values) < 3:
-                                sample_values.append(entity.entity_value)
-                                
-                except Exception as e:
-                    print(f"  Erreur analyse valeur '{value[:30]}...': {e}")
+            if not chunks_data:
+                logger.warning(f"Aucun chunk pour job {job_id}")
+                return []
+            
+            headers = chunks_data[0].get('headers', [])
+            sample_data = []
+            
+            for chunk in chunks_data[:1]:
+                chunk_rows = chunk.get('data', [])
+                for row_data in chunk_rows[:10]:
+                    if isinstance(row_data, dict):
+                        sample_data.append(row_data)
+                    elif isinstance(row_data, list) and len(row_data) == len(headers):
+                        row_dict = {headers[i]: row_data[i] for i in range(len(headers))}
+                        sample_data.append(row_dict)
+            
+            if not sample_data:
+                return []
+            
+            # Analyseurs
+            try:
+                analyzer = create_enhanced_analyzer_engine("moroccan_entities_model_v2")
+                semantic_analyzer = SemanticAnalyzer("moroccan_entities_model_v2")
+                auto_tagger = IntelligentAutoTagger(analyzer, semantic_analyzer)
+            except Exception as e:
+                logger.error(f"Erreur init analyseurs: {e}")
+                return []
+            
+            job_record = main_db.anonymization_jobs.find_one({'_id': ObjectId(job_id)})
+            original_filename = job_record.get('original_filename', 'dataset.csv') if job_record else 'dataset.csv'
+            
+            metadata_list = []
+            
+            for header in headers:
+                column_values = []
+                for row in sample_data:
+                    if header in row and row[header]:
+                        value = str(row[header]).strip()
+                        if value:
+                            column_values.append(value)
+                
+                if not column_values:
                     continue
-            
-            print(f"Entités détectées pour {header}: {list(detected_entities)} (total: {total_entities})")
-            
-            # Si des entités ont été détectées, créer l'entrée métadonnées
-            if detected_entities:
-                # Déterminer les recommandations automatiques
-                rgpd_category = self._get_rgpd_category(detected_entities)
-                sensitivity_level = self._get_sensitivity_level(detected_entities)  
-                ranger_policy = self._get_ranger_policy(detected_entities)
                 
-                column_metadata = {
-                    'column_name': header,
-                    'entity_types': list(detected_entities),
-                    'sample_values': sample_values,
-                    'total_entities': total_entities,
-                    'recommended_rgpd_category': rgpd_category,
-                    'recommended_sensitivity_level': sensitivity_level,
-                    'recommended_ranger_policy': ranger_policy,
-                    'validation_status': 'pending'
-                }
+                detected_entities = set()
+                sample_values = []
+                total_entities = 0
                 
-                metadata_list.append(column_metadata)
-                print(f"Métadonnées créées pour {header}")
-        
-        print(f"\n=== RÉSULTAT: Métadonnées générées pour {len(metadata_list)} colonnes ===")
-        return metadata_list
-        
-    except Exception as e:
-        print(f"Erreur globale dans _get_enriched_metadata: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
+                for i, value in enumerate(column_values[:5]):
+                    try:
+                        entities, tags = auto_tagger.analyze_and_tag(value, dataset_name=original_filename)
+                        
+                        for entity in entities:
+                            if entity.entity_type not in EXCLUDED_ENTITY_TYPES:
+                                detected_entities.add(entity.entity_type)
+                                total_entities += 1
+                                
+                                if len(sample_values) < 3:
+                                    sample_values.append(entity.entity_value)
+                                    
+                    except Exception as e:
+                        continue
+                
+                if detected_entities:
+                    rgpd_category = self._get_rgpd_category(detected_entities)
+                    sensitivity_level = self._get_sensitivity_level(detected_entities)  
+                    ranger_policy = self._get_ranger_policy(detected_entities)
+                    
+                    column_metadata = {
+                        'job_id': str(job_id),
+                        'column_name': header,
+                        'entity_types': list(detected_entities),
+                        'sample_values': sample_values,
+                        'total_entities': total_entities,
+                        'recommended_rgpd_category': rgpd_category,
+                        'recommended_sensitivity_level': sensitivity_level,
+                        'recommended_ranger_policy': ranger_policy,
+                        'validation_status': 'pending',
+                        'atlas_sync_status': 'not_synced',
+                        'created_at': datetime.now()
+                    }
+                    
+                    # Sauvegarder dans MongoDB
+                    enriched_collection.update_one(
+                        {'job_id': str(job_id), 'column_name': header},
+                        {'$set': column_metadata},
+                        upsert=True
+                    )
+                    
+                    metadata_list.append(column_metadata)
 
- def _get_rgpd_category(self, detected_entities):
-    """Détermine la catégorie RGPD basée sur les entités détectées"""
-    if any(entity in detected_entities for entity in ['PERSON', 'ID_MAROC']):
-        return "Données d'identification"
-    elif any(entity in detected_entities for entity in ['IBAN_CODE', 'CREDIT_CARD']):
-        return "Données financières"
-    elif any(entity in detected_entities for entity in ['PHONE_NUMBER', 'EMAIL_ADDRESS']):
-        return "Données de contact"
-    elif 'LOCATION' in detected_entities:
-        return "Données de localisation"
-    else:
-        return "Non défini"
+            for meta in metadata_list:
+              meta['json_safe'] = json.dumps({
+               'column_name': meta['column_name'],
+               'entity_types': meta['entity_types'],
+               'validation_status': meta.get('validation_status', 'pending'),
+               'recommended_rgpd_category': meta.get('recommended_rgpd_category'),
+               'recommended_sensitivity_level': meta.get('recommended_sensitivity_level'),
+               'recommended_ranger_policy': meta.get('recommended_ranger_policy')
+              })
+            
+            return metadata_list
+            
+        except Exception as e:
+            logger.error(f"Erreur _get_enriched_metadata: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
 
- def _get_sensitivity_level(self, detected_entities):
-    """Détermine le niveau de sensibilité"""
-    if any(entity in detected_entities for entity in ['PERSON', 'ID_MAROC']):
-        return "PERSONAL_DATA"
-    elif any(entity in detected_entities for entity in ['IBAN_CODE', 'CREDIT_CARD']):
-        return "RESTRICTED"
-    elif any(entity in detected_entities for entity in ['PHONE_NUMBER', 'EMAIL_ADDRESS']):
-        return "CONFIDENTIAL"
-    else:
-        return "INTERNAL"
+    def _get_rgpd_category(self, detected_entities):
+        if any(entity in detected_entities for entity in ['PERSON', 'ID_MAROC']):
+            return "Données d'identification"
+        elif any(entity in detected_entities for entity in ['IBAN_CODE', 'CREDIT_CARD']):
+            return "Données financières"
+        elif any(entity in detected_entities for entity in ['PHONE_NUMBER', 'EMAIL_ADDRESS']):
+            return "Données de contact"
+        elif 'LOCATION' in detected_entities:
+            return "Données de localisation"
+        else:
+            return "Non défini"
 
- def _get_ranger_policy(self, detected_entities):
-    """Détermine la politique Ranger"""
-    if 'PERSON' in detected_entities:
-        return "ranger_masking_policy_person"
-    elif 'ID_MAROC' in detected_entities:
-        return "ranger_hashing_policy_id"
-    elif any(entity in detected_entities for entity in ['PHONE_NUMBER', 'EMAIL_ADDRESS']):
-        return "ranger_partial_masking_policy_phone"
-    elif any(entity in detected_entities for entity in ['IBAN_CODE', 'CREDIT_CARD']):
-        return "ranger_encryption_policy_financial"
-    else:
-        return "ranger_masking_policy_person"
+    def _get_sensitivity_level(self, detected_entities):
+        if any(entity in detected_entities for entity in ['PERSON', 'ID_MAROC']):
+            return "PERSONAL_DATA"
+        elif any(entity in detected_entities for entity in ['IBAN_CODE', 'CREDIT_CARD']):
+            return "RESTRICTED"
+        elif any(entity in detected_entities for entity in ['PHONE_NUMBER', 'EMAIL_ADDRESS']):
+            return "CONFIDENTIAL"
+        else:
+            return "INTERNAL"
+
+    def _get_ranger_policy(self, detected_entities):
+        if 'PERSON' in detected_entities:
+            return "ranger_masking_policy_person"
+        elif 'ID_MAROC' in detected_entities:
+            return "ranger_hashing_policy_id"
+        elif any(entity in detected_entities for entity in ['PHONE_NUMBER', 'EMAIL_ADDRESS']):
+            return "ranger_partial_masking_policy_phone"
+        elif any(entity in detected_entities for entity in ['IBAN_CODE', 'CREDIT_CARD']):
+            return "ranger_encryption_policy_financial"
+        else:
+            return "ranger_masking_policy_person"
 
 
 class ColumnValidationWorkflowView(View):  
     def post(self, request, job_id, column_name):  
+        logger = logging.getLogger(__name__)
+
         if not request.session.get("user_email"):  
             return JsonResponse({'error': 'Non autorisé'}, status=401)  
           
         try:  
             import json  
-            data = json.loads(request.body)  
+            data = json.loads(request.body)
+            
             validation_status = data.get('validation_status')  
             annotation_comments = data.get('annotation_comments', '')  
             entity_type = data.get('entity_type')  
-            rgpd_category = data.get('rgpd_category')  
+            rgpd_category = data.get('rgpd_category')
+            sensitivity_level = data.get('sensitivity_level')
             anonymization_method = data.get('anonymization_method')  
               
-            # Connexion MongoDB  
-            client = MongoClient('mongodb://mongodb:27017/')  
-            metadata_db = client['metadata_validation_db']  
-            column_annotations_collection = metadata_db['column_annotations']  
-              
-            # Créer ou mettre à jour l'annotation de colonne  
-            annotation_doc = {  
-                'job_id': job_id,  
-                'column_name': column_name,  
-                'entity_type': entity_type,  
-                'validation_status': validation_status,  
-                'annotation_comments': annotation_comments,  
-                'rgpd_category': rgpd_category,  
-                'anonymization_method': anonymization_method,  
-                'validated_by': request.session.get("user_email"),  
-                'validation_date': datetime.now(),  
-                'updated_at': datetime.now()  
-            }  
-              
-            # Upsert (insert ou update)  
-            column_annotations_collection.update_one(  
-                   {'job_id': job_id, 'column_name': column_name, 'entity_type': entity_type},  
-                   {'$set': annotation_doc},  
-                   upsert=True  
-            )  
-  
-            sync_status = {'hive_sync': False, 'atlas_sync': False, 'ranger_sync': False}  
-  
-            try:  
-                    from hive_integration.hive_integration import HiveMetadataSync  
-          
-                    with HiveMetadataSync(  
-                         hive_host='sandbox-hdp.hortonworks.com',   
-                         hive_port=2181  
-                    ) as hive_sync:  
-                         hive_sync.create_metadata_tables()  
-                         hive_sync.sync_column_annotations(job_id=job_id)  
-              
-                    sync_status['hive_sync'] = True  
-            except Exception as e:  
-                   print(f"Erreur synchronisation Hive Sandbox: {e}")  
-                   sync_status['hive_sync'] = False
-
-            # Déclencher la synchronisation automatique vers Atlas  
-            if sync_status['hive_sync']:
-                   try:  
-                      from atlas_integration import GlossarySyncService  
-                      sync_service = GlossarySyncService(  
-                         atlas_url=os.getenv('ATLAS_URL', 'http://127.0.0.1:21000'),  
-                         atlas_username=os.getenv('ATLAS_USERNAME', 'admin'),  
-                         atlas_password=os.getenv('ATLAS_PASSWORD', 'allahyarani123')  
-                      )  
-                      sync_result = sync_service.sync_with_categories_and_classifications()
-                      sync_status['atlas_sync'] = sync_result.get('success', False)  
-                      print(f"Synchronisation Atlas automatique: {sync_result}")  
-                   except Exception as e:  
-                      print(f"Erreur synchronisation Atlas: {e}")  
-                      sync_status['atlas_error'] = str(e)  
+            # MongoDB metadata_validation_db
+            metadata_db = MongoClient('mongodb://mongodb:27017/')['metadata_validation_db']
+            enriched_collection = metadata_db['enriched_metadata']
+            
+            # Mise à jour dans enriched_metadata
+            update_doc = {
+                'job_id': str(job_id),
+                'column_name': column_name,
+                'entity_type': entity_type,
+                'validation_status': validation_status,
+                'annotation_comments': annotation_comments,
+                'recommended_rgpd_category': rgpd_category,
+                'recommended_sensitivity_level': sensitivity_level,
+                'recommended_ranger_policy': anonymization_method,
+                'validated_by': request.session.get("user_email"),
+                'validation_date': datetime.now(),
+                'updated_at': datetime.now(),
+                'ready_for_atlas_sync': validation_status == 'validated'
+            }
+            
+            enriched_collection.update_one(
+                {'job_id': str(job_id), 'column_name': column_name},
+                {'$set': update_doc},
+                upsert=True
+            )
+            
+            logger.info(f"Validation sauvegardée: {column_name} -> {validation_status}")
 
             return JsonResponse({  
-                   'success': True,  
-                   'message': 'Validation sauvegardée avec succès',  
-                   'sync_status': sync_status,  
-                   'atlas_synced': sync_status['atlas_sync']  
+                'success': True,  
+                'message': 'Validation sauvegardée',
+                'validation_status': validation_status,
+                'ready_for_sync': validation_status == 'validated'
             })
         
         except Exception as e:  
+            logger.error(f"Erreur validation: {e}")
             return JsonResponse({'error': str(e)}, status=500)
-
 
 class ValidationWorkflowView(View):  
     def post(self, request, job_id, entity_id):  
@@ -926,3 +934,258 @@ class DataQualityView(View):
                 'created_at': datetime.now()    
             }    
             self.csv_db['csv_chunks'].insert_one(chunk_doc)
+
+class AtlasSyncView(View):
+ """Vue pour déclencher la synchronisation Atlas"""
+    
+ @method_decorator(csrf_exempt)
+ def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+    
+ def post(self, request):
+    """Déclencher la synchronisation vers Atlas"""
+    logger = logging.getLogger(__name__)
+
+    user_email = request.session.get("user_email")
+    if not user_email:
+        return JsonResponse({'error': 'Non authentifié'}, status=401)
+    
+    user = users.find_one({'email': user_email})
+    if not user or user.get('role') != 'user':
+        return JsonResponse({'error': 'Accès refusé - Data Steward uniquement'}, status=403)
+    
+    try:
+        logger.info(f"Synchronisation Atlas déclenchée par {user_email}")
+        
+        # Import corrigé
+        try:
+            # Essayez d'abord avec le nom du fichier document
+            from atlas_entity_migration import AtlasMetadataGovernance
+        except ImportError:
+            try:
+                # Sinon essayez depuis recommendation_engine
+                from recommendation_engine.atlas_entity_migration import AtlasMetadataGovernance
+            except ImportError as e:
+                logger.error(f"Import impossible: {e}")
+                return JsonResponse({
+                    'success': False,
+                    'error': f'Module de migration introuvable. Vérifiez que atlas_entity_migration.py existe.'
+                }, status=500)
+        
+        governance = AtlasMetadataGovernance()
+        
+        # Exécution avec timeout
+        import signal
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Synchronisation Atlas timeout")
+        
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(180)  # 3 minutes max
+        
+        try:
+            result = governance.sync_governance_metadata(preview_only=False)
+            signal.alarm(0)
+            
+            if result.get('success'):
+                return JsonResponse({
+                    'success': True,
+                    'message': 'Synchronisation réussie',
+                    'details': {
+                        'glossary_guid': result.get('glossary_guid'),
+                        'terms_synced': result.get('validated_terms_synced', 0),
+                        'categories_created': result.get('categories_created', 0)
+                    }
+                })
+            else:
+                return JsonResponse({
+                    'success': False,
+                    'error': result.get('error', 'Erreur inconnue')
+                }, status=500)
+                
+        except TimeoutError:
+            return JsonResponse({
+                'success': False,
+                'error': 'Timeout: Atlas ne répond pas. Vérifiez que HDP Sandbox est démarré.'
+            }, status=504)
+            
+    except Exception as e:
+        logger.error(f"Erreur synchronisation Atlas: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+    
+
+class OdooMetadataView(View):  
+    """Vue pour afficher les métadonnées enrichies des records Odoo"""  
+      
+    def get(self, request):  
+        logger = logging.getLogger(__name__)
+
+        if not request.session.get("user_email"):  
+            return redirect('login_form')  
+          
+        user_email = request.session.get("user_email")  
+        user = users.find_one({'email': user_email})  
+          
+        if not user or user.get('role') not in ['admin', 'user']:  
+            return redirect('authapp:home')  
+        
+        try:
+            # Récupérer les jobs Odoo
+            odoo_jobs = list(main_db.anonymization_jobs.find({  
+                'source': 'kafka_odoo_vrp'  
+            }).sort('upload_date', -1))  
+            
+            logger.info(f"🔍 Jobs Odoo trouvés: {len(odoo_jobs)}")
+            
+            # Enrichir chaque job avec ses métadonnées  
+            enriched_jobs = []  
+            for job in odoo_jobs:  
+                job_id = str(job['_id'])  
+                logger.info(f"📋 Traitement job: {job_id}")
+                
+                # Récupérer les métadonnées
+                metadata = self._get_enriched_metadata(job_id)  
+                
+                logger.info(f"✅ Métadonnées pour {job_id}: {len(metadata)} colonnes")
+                
+                enriched_jobs.append({  
+                    'job': job,  
+                    'job_id': job_id,  
+                    'metadata': metadata  
+                })  
+            
+            logger.info(f"📊 Total jobs enrichis: {len(enriched_jobs)}")
+            
+            return render(request, 'recommendation_engine/odoo_metadata.html', {  
+                'enriched_jobs': enriched_jobs,  
+                'user_role': user.get('role', 'user')  
+            })
+            
+        except Exception as e:
+            logger.error(f"❌ Erreur dans OdooMetadataView: {e}")
+            import traceback
+            traceback.print_exc()
+            return render(request, 'recommendation_engine/error.html', {
+                'error': str(e)
+            })
+      
+    def _get_enriched_metadata(self, job_id):  
+        """Récupère les métadonnées enrichies pour un job Odoo"""  
+        logger = logging.getLogger(__name__)
+
+        
+        try:
+            # CORRECTION: Utiliser csv_db global
+            chunks_data = list(csv_db.csv_chunks.find({'job_id': job_id}))  
+            
+            if not chunks_data:  
+                logger.warning(f"⚠️ Aucun chunk pour job {job_id}")
+                return []  
+              
+            headers = chunks_data[0].get('headers', [])  
+            logger.info(f"📋 Headers trouvés: {headers}")
+            
+            # Reconstituer les données depuis les chunks
+            sample_data = []
+            for chunk in chunks_data:
+                chunk_rows = chunk.get('data', [])
+                for row_data in chunk_rows[:10]:
+                    if isinstance(row_data, dict):
+                        sample_data.append(row_data)
+                    elif isinstance(row_data, list) and len(row_data) == len(headers):
+                        row_dict = {headers[i]: row_data[i] for i in range(len(headers))}
+                        sample_data.append(row_dict)
+            
+            logger.info(f"📊 Sample data: {len(sample_data)} lignes")
+            
+            if not sample_data:
+                logger.warning(f"⚠️ Pas de données pour job {job_id}")
+                return []
+              
+            # Analyser les entités par colonne  
+            metadata = []  
+            for header in headers:  
+                column_values = [str(row.get(header, '')) for row in sample_data]
+                # Filtrer les valeurs vides
+                column_values = [v for v in column_values if v and v.strip()]
+                  
+                if not column_values:
+                    continue
+                
+                # Détection d'entités basique
+                entity_types = set()  
+                sample_values = column_values[:3]  # 3 premiers échantillons
+                  
+                for value in column_values[:5]:
+                    if not value or not value.strip():
+                        continue
+                        
+                    value_lower = value.lower()
+                    
+                    # Détection par patterns
+                    if '@' in value and '.' in value:
+                        entity_types.add('EMAIL_ADDRESS')
+                    
+                    # Détection téléphone (commence par 0 ou + et contient des chiffres)
+                    if (value.startswith(('0', '+')) or any(c.isdigit() for c in value)) and len(value) >= 8:
+                        if any(c.isdigit() for c in value):
+                            entity_types.add('PHONE_NUMBER')
+                    
+                    # Détection par nom de colonne
+                    if header.lower() in ['name', 'nom', 'client', 'customer']:
+                        entity_types.add('PERSON')
+                    if header.lower() in ['location', 'adresse', 'ville', 'address', 'city']:
+                        entity_types.add('LOCATION')
+                    if header.lower() in ['email', 'mail', 'e-mail']:
+                        entity_types.add('EMAIL_ADDRESS')
+                    if header.lower() in ['phone', 'tel', 'telephone', 'mobile']:
+                        entity_types.add('PHONE_NUMBER')
+                
+                # Créer l'entrée de métadonnées même si pas d'entités détectées
+                metadata.append({  
+                    'column_name': header,  
+                    'entity_types': list(entity_types) if entity_types else ['UNKNOWN'],  
+                    'sample_values': sample_values,  
+                    'total_entities': len(column_values),  
+                    'recommended_rgpd_category': self._get_rgpd_category(entity_types),  
+                    'recommended_sensitivity_level': self._get_sensitivity_level(entity_types),  
+                    'recommended_ranger_policy': self._get_ranger_policy(entity_types),  
+                    'validation_status': 'pending'  
+                })  
+            
+            logger.info(f"✅ Métadonnées générées: {len(metadata)} colonnes")
+            return metadata
+            
+        except Exception as e:
+            logger.error(f"❌ Erreur _get_enriched_metadata: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+      
+    def _get_rgpd_category(self, entity_types):  
+        if any(e in entity_types for e in ['PERSON', 'EMAIL_ADDRESS']):  
+            return "Données d'identification"  
+        elif 'PHONE_NUMBER' in entity_types:  
+            return "Données de contact"  
+        elif 'LOCATION' in entity_types:  
+            return "Données de localisation"  
+        return "Non défini"  
+      
+    def _get_sensitivity_level(self, entity_types):  
+        if entity_types and 'UNKNOWN' not in entity_types:  
+            return "PERSONAL_DATA"  
+        return "INTERNAL"  
+      
+    def _get_ranger_policy(self, entity_types):  
+        if 'PERSON' in entity_types:  
+            return "ranger_masking_policy_person"  
+        elif 'PHONE_NUMBER' in entity_types:  
+            return "ranger_partial_masking_policy_phone"  
+        elif 'EMAIL_ADDRESS' in entity_types:
+            return "ranger_partial_masking_policy_email"
+        return "ranger_hashing_policy_id"

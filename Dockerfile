@@ -12,10 +12,6 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt ./  
 RUN pip install --no-cache-dir -r requirements.txt  
   
-# Installer les navigateurs Playwright  
-#RUN playwright install-deps  
-#RUN playwright install  
-  
 COPY create_admin.py ./  
   
 # Copier le code de l'application  
@@ -23,4 +19,5 @@ COPY . .
   
 EXPOSE 8000  
   
+# CORRECTION: UN SEUL CMD par défaut (pour web)
 CMD ["sh", "-c", "python create_admin.py && python manage.py runserver 0.0.0.0:8000"]

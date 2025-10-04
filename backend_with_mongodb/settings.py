@@ -43,6 +43,8 @@ INSTALLED_APPS = [
     "authapp",
     "tailwind",
     "csv_anonymizer",
+    "kafka_integration",
+    "kafka_integration1",
     "mongo_auth",
     "theme",
     "recommendation_engine",

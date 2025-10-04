@@ -1,95 +1,81 @@
 version: '3.8'
 
 services:
-
-
   mongodb:  
-   image: mongo:latest  
-   ports:  
-    - "27017:27017"  
-   volumes:  
-    - mongodb_data:/data/db  
-   networks:  
-    - hdp-network  
-   healthcheck:  
-    test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]  
-    interval: 10s  
-    timeout: 5s  
-    retries: 5  
-    start_period: 30s  
-     
+    image: mongo:latest  
+    ports:  
+      - "27017:27017"  
+    volumes:  
+      - mongodb_data:/data/db  
+    networks:  
+      - hdp-network  
+    healthcheck:  
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]  
+      interval: 10s  
+      timeout: 5s  
+      retries: 5  
+      start_period: 30s  
 
   # ===========================================================================
-  # DJANGO WEB -  service existant (MODIFIÉ)
+  # SERVICE WEB DJANGO
   # ===========================================================================
-
   web:
     build: .
+    container_name: django-web
     ports:
       - "8001:8000"
     depends_on:
-       mongodb:
-         condition: service_healthy
-
+      mongodb:
+        condition: service_healthy
     env_file:
       - .env
-
-      
     environment:
-      # ===  VARIABLES EXISTANTES (GARDÉES) ===
       - MONGODB_HOST=mongodb
-      - ATLAS_URL=http://172.26.0.2:21000
+      - ATLAS_URL=http://172.19.0.2:21000
       - ATLAS_USERNAME=admin
       - ATLAS_PASSWORD=ensias123
-      
-      # === NOUVELLES VARIABLES KAFKA ===
       - KAFKA_BOOTSTRAP_SERVERS=kafka-broker:29092
-      - KAFKA_CONSUMER_GROUP=django-governance-group
       - KAFKA_ENABLED=true
-
     volumes:
-      - .:/app  # Votre volume existant
-      # NOUVEAU: Monter l'extension Kafka
-      - ../kafka-orchestrator/network-bridge/django-kafka-extension:/app/kafka_integration:ro
+      - .:/app
     networks:
-      - hdp-network         # Votre réseau existant
-      - kafka-integration   # NOUVEAU: Accès à Kafka
+      - hdp-network
+      - kafka-integration
 
   # ===========================================================================
-  # KAFKA CONSUMER - NOUVEAU SERVICE
+  # KAFKA CONSUMER - SERVICE CORRIGÉ
   # ===========================================================================
-  # RÔLE : Service dédié pour écouter les messages Kafka
-  # AVANTAGE : Séparer la logique web de la logique de traitement des messages
   kafka-consumer:
-    build: .  # Même image que votre Django
+    build: .
     container_name: django-kafka-consumer
     depends_on:
       - mongodb
       - web
+    env_file:
+      - .env
     environment:
-      # Même configuration que votre Django web
       - MONGODB_HOST=mongodb
-      - ATLAS_URL=http://172.26.0.2:21000
+      - ATLAS_URL=http://172.19.0.2:21000
       - ATLAS_USERNAME=admin
       - ATLAS_PASSWORD=ensias123
       - KAFKA_BOOTSTRAP_SERVERS=kafka-broker:29092
       - KAFKA_CONSUMER_GROUP=django-governance-group
+      - KAFKA_ENABLED=true
     volumes:
-      - .:/app  # Même code source
-      - ../kafka-orchestrator/network-bridge/django-kafka-extension:/app/kafka_integration:ro
+      - .:/app
     networks:
       - hdp-network
       - kafka-integration
-    # COMMANDE SPÉCIALE : Lance le consumer Kafka au lieu du serveur web
-    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+    # CORRECTION CRITIQUE: Lancer le consumer Kafka, pas Django
+    command: ["python", "manage.py", "start_kafka_consumer"]
     restart: unless-stopped
 
 volumes:
-  mongodb_data:  # Votre volume existant
+  mongodb_data:
 
-# =============================================================================
-# Réseaux créés automatiquement par Docker Compose
-# =============================================================================
 networks:
-  hdp-network: {}
-  kafka-integration: {}
+  hdp-network:
+    driver: bridge
+  kafka-integration:
+    external: true
+    name: kafka-integration-network
