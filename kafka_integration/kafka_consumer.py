@@ -21,7 +21,13 @@ class OdooCustomerDataConsumer:
         mongo_uri = 'mongodb://mongodb:27017/'
         logger.info(f"Connexion MongoDB: {mongo_uri}")
         
-        self.client = MongoClient(mongo_uri)
+
+        from db_connections import db as main_db  
+        from pymongo import MongoClient  
+  
+        self.client = MongoClient('mongodb://mongodb:27017/')  
+        self.main_db = main_db  # Utiliser la conne xion centralisée 
+        self.csv_db = self.client['csv_anonymizer_db']
         
         try:
             self.client.admin.command('ping')

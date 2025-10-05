@@ -44,7 +44,6 @@ INSTALLED_APPS = [
     "tailwind",
     "csv_anonymizer",
     "kafka_integration",
-    "kafka_integration1",
     "mongo_auth",
     "theme",
     "recommendation_engine",
@@ -52,7 +51,35 @@ INSTALLED_APPS = [
 
 TAILWIND_APP_NAME = 'theme'
 
-
+# In settings.py
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose'
+        },
+    },
+    'loggers': {
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'recommendation_engine': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
 
 
 MANGO_JWT_SETTINGS = {
@@ -61,7 +88,13 @@ MANGO_JWT_SETTINGS = {
     "db_name": "PFADB",
 }
 
-
+MONGODB_SETTINGS = {
+    'host': 'mongodb://mongodb:27017/',
+    'db': 'csv_anonymizer_db',
+    'maxPoolSize': 50,  # Maximum connections in pool
+    'minPoolSize': 10,   # Minimum connections to maintain
+    'maxIdleTimeMS': 30000,  # Close idle connections after 30s
+}
 # settings.py
 SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
 

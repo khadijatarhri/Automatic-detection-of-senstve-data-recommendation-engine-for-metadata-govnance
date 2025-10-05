@@ -4,7 +4,10 @@
 <head>  
     <meta charset="UTF-8">  
     <meta name="viewport" content="width=device-width, initial-scale=1.0">  
-    <title>Métadonnées Odoo - Sale Orders</title>  
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">  
+    <meta http-equiv="Pragma" content="no-cache">  
+    <meta http-equiv="Expires" content="0">
+    <title>Métadonnées Odoo - Sale Orders</title>   
     <link rel="stylesheet" href="{% static 'recommendation_engine/toast.css' %}">  
     <script src="https://cdn.tailwindcss.com"></script>  
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">  
@@ -146,7 +149,7 @@
         {% endfor %}  
     </div>  
   
-    <!-- Modal de Validation (similaire à metadata.html) -->  
+    <!-- Modal de Validation -->  
     <div id="columnValidationModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50">  
         <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">  
             <div class="flex justify-between items-center mb-4">  
@@ -229,7 +232,25 @@
         </div>  
     </div>  
   
-    <script>  
+    <script>
+        // CORRECTION CRITIQUE: Obtenir le CSRF token correctement
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        
+        const csrftoken = getCookie('csrftoken');
+        
         function openColumnValidationModal(jobId, columnName, entityTypes) {  
             document.getElementById('modalJobId').value = jobId;  
             document.getElementById('modalColumnName').value = columnName;  
@@ -262,7 +283,7 @@
                 method: 'POST',  
                 headers: {  
                     'Content-Type': 'application/json',  
-                    'X-CSRFToken': '{{ csrf_token }}'  
+                    'X-CSRFToken': csrftoken
                 },  
                 body: JSON.stringify(data)  
             })  
