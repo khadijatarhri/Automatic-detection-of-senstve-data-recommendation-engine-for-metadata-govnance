@@ -71,9 +71,14 @@
                         <i class="fas fa-file-invoice mr-3"></i>  
                         {{ item.job.original_filename }}  
                     </h2>  
-                    <span class="bg-white text-purple-600 px-3 py-1 rounded-full text-sm font-semibold">  
-                        {{ item.job.upload_date|date:"d/m/Y H:i" }}  
-                    </span>  
+                    <div class="flex items-center space-x-4">  
+                        <span class="bg-white text-purple-600 px-3 py-1 rounded-full text-sm font-semibold">  
+                            {{ item.record_count }} records  
+                        </span>  
+                        <span class="bg-white text-purple-600 px-3 py-1 rounded-full text-sm font-semibold">  
+                            {{ item.job.upload_date|date:"d/m/Y H:i" }}  
+                        </span>  
+                    </div>  
                 </div>  
             </div>  
               
@@ -84,13 +89,13 @@
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Colonne</th>  
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Types d'Entités</th>  
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Échantillons</th>  
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>  
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Détections</th>  
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Catégorie RGPD</th>  
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sensibilité</th>  
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Politique Ranger</th>  
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>  
                         </tr>  
-                    </thead>  
+                    </thead>
                     <tbody class="bg-white divide-y divide-gray-200">  
                         {% for column in item.metadata %}  
                         <tr class="hover:bg-gray-50">  
@@ -143,10 +148,10 @@
         {% empty %}  
         <div class="bg-white rounded-xl shadow-lg p-12 text-center">  
             <i class="fas fa-inbox text-gray-300 text-6xl mb-4"></i>  
-            <h3 class="text-xl font-semibold text-gray-700 mb-2">Aucune donnée Odoo</h3>  
-            <p class="text-gray-500">Les commandes de vente Odoo apparaîtront ici une fois synchronisées via Kafka</p>  
+            <h3 class="text-xl font-semibold text-gray-700 mb-2">Aucun batch Odoo</h3>  
+            <p class="text-gray-500">Les données Odoo apparaîtront ici par batch</p>  
         </div>  
-        {% endfor %}  
+        {% endfor %}
     </div>  
   
     <!-- Modal de Validation -->  

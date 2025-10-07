@@ -1019,132 +1019,105 @@ class AtlasSyncView(View):
         }, status=500)
     
 
-class OdooMetadataView(View):  
-    """Vue pour afficher les métadonnées enrichies des records Odoo"""  
-      
-     
 
-    def get(self, request):      
-        logger = logging.getLogger(__name__)    
-        logger.info("🚀 OdooMetadataView.get() appelée")    
-        
-        # Vérifier session    
-        user_email = request.session.get("user_email")    
-        logger.info(f"📧 User email: {user_email}")    
-        
-        if not user_email:      
-            logger.warning("⚠️ Pas d'email - redirection vers login")    
-            return redirect('login_form')      
+class OdooMetadataView(View):
+    def get(self, request):  
+     logger = logging.getLogger(__name__)  
+      
+    # Log 1: Début de la requête  
+     logger.info("🚀 OdooMetadataView.get() - Début de la requête")  
+      
+    # Authentification  
+     user_email = request.session.get("user_email")  
+     logger.info(f"📧 User email depuis session: {user_email}")  
+      
+     if not user_email:  
+        logger.warning("⚠️ Pas d'email - redirection vers login")  
+        return redirect('login_form')  
+      
+    # Vérification utilisateur  
+     user = users.find_one({'email': user_email})  
+     logger.info(f"👤 User trouvé: {user.get('email') if user else 'None'}, role: {user.get('role') if user else 'None'}")  
+      
+     if not user or user.get('role') not in ['admin', 'user']:  
+        logger.warning(f"⚠️ Rôle invalide ({user.get('role') if user else 'None'}) - redirection")  
+        return redirect('authapp:home')  
+      
+    # DÉBOGAGE : Vérifier la connexion main_db importée  
+     logger.info(f"🔍 main_db importé - type: {type(main_db)}")  
+     logger.info(f"🔍 main_db importé - database name: {main_db.name if hasattr(main_db, 'name') else 'N/A'}")  
+      
+    # CORRECTION : Créer une connexion MongoDB locale explicite  
+     logger.info("🔌 Création connexion MongoDB locale explicite")  
+     client = MongoClient('mongodb://mongodb:27017/')  
+     main_db_local = client['main_db']  
+      
+    # Test avec connexion explicite  
+     logger.info("🧪 Test count avec connexion explicite")  
+     test_count = main_db_local.anonymization_jobs.count_documents({'source': 'kafka_odoo_vrp'})  
+     logger.info(f"🔍 Test count résultat: {test_count} jobs avec source='kafka_odoo_vrp'")  
+      
+    # Vérifier toutes les sources disponibles  
+     all_sources = main_db_local.anonymization_jobs.distinct('source')  
+     logger.info(f"🔍 Toutes les sources dans la DB: {all_sources}")  
+      
+    # Récupérer les JOBS BATCH avec connexion locale  
+     logger.info("📦 Récupération des jobs Odoo avec connexion locale")  
+     odoo_jobs = list(main_db_local.anonymization_jobs.find({  
+        'source': 'kafka_odoo_vrp'  
+     }).sort('upload_date', -1))  
+      
+     logger.info(f"✅ Jobs Odoo batch trouvés: {len(odoo_jobs)}")  
+      
+    # Log détaillé de chaque job trouvé  
+     for idx, job in enumerate(odoo_jobs):  
+        logger.info(f"📋 Job {idx+1}: _id={job['_id']}, filename={job.get('original_filename')}, source={job.get('source')}")  
+      
+    # Enrichir les jobs  
+     logger.info("🔄 Début enrichissement des jobs")  
+     enriched_jobs = []  
+      
+     for job in odoo_jobs:  
+        job_id = str(job['_id'])  
+        logger.info(f"🔍 Traitement job_id: {job_id}")  
           
-        # Vérifier utilisateur    
-        user = users.find_one({'email': user_email})      
-        logger.info(f"👤 User trouvé: {user.get('email') if user else 'None'}, role: {user.get('role') if user else 'None'}")    
-          
-        if not user or user.get('role') not in ['admin', 'user']:      
-            logger.warning(f"⚠️ Rôle invalide ({user.get('role') if user else 'None'}) - redirection")    
-            return redirect('authapp:home')      
-        
-        logger.info("✅ Authentification OK - début traitement")    
-        
-        try:
-            # DÉBOGAGE: Vérifier toutes les valeurs 'source' possibles
-            all_sources = main_db.anonymization_jobs.distinct('source')
-            logger.info(f"🔍 Sources disponibles dans la DB: {all_sources}")
-            
-            # CORRECTION: Essayer plusieurs variantes possibles
-            possible_sources = [
-                'kafka_odoo_vrp',
-                'odoo',
-                'kafka_odoo',
-                'kafka',
-                'odoo_vrp'
-            ]
-            
-            odoo_jobs = []
-            for source_value in possible_sources:
-                jobs = list(main_db.anonymization_jobs.find({      
-                    'source': source_value      
-                }).sort('upload_date', -1))
-                
-                if jobs:
-                    logger.info(f"✅ Trouvé {len(jobs)} jobs avec source='{source_value}'")
-                    odoo_jobs.extend(jobs)
-                    break  # Sortir dès qu'on trouve des jobs
-            
-            # Si toujours aucun job, chercher sans filtre de source
-            if not odoo_jobs:
-                logger.warning("⚠️ Aucun job trouvé avec les sources prédéfinies")
-                logger.info("🔍 Recherche de TOUS les jobs récents...")
-                
-                # Chercher les 10 derniers jobs quelque soit la source
-                all_recent_jobs = list(main_db.anonymization_jobs.find().sort('upload_date', -1).limit(10))
-                
-                for job in all_recent_jobs:
-                    logger.info(f"📋 Job trouvé: {job.get('_id')}, source: {job.get('source')}, filename: {job.get('original_filename')}")
-                
-                # Utiliser tous les jobs récents
-                odoo_jobs = all_recent_jobs
-            
-            logger.info(f"🔍 Jobs Odoo trouvés: {len(odoo_jobs)}")    
-          
-            # Enrichir chaque job avec ses métadonnées    
-            enriched_jobs = []
-            first_job_id = None  # Pour la navigation
-            
-            for job in odoo_jobs:    
-                job_id = str(job['_id'])
-                
-                # Capturer le premier job_id pour la navigation
-                if first_job_id is None:
-                    first_job_id = job_id
-                    
-                logger.info(f"📋 Début traitement job: {job_id}")  
+        try:  
+            # Récupérer les métadonnées  
+            metadata = self._get_enriched_metadata(job_id)  
+            logger.info(f"✅ Métadonnées récupérées pour {job_id}: {len(metadata)} colonnes")  
               
-                try:  
-                    # Récupérer les métadonnées  
-                    metadata = self._get_enriched_metadata(job_id)    
-                    logger.info(f"✅ Métadonnées reçues pour {job_id}: {len(metadata)} colonnes")  
-                  
-                    enriched_jobs.append({    
-                        'job': job,    
-                        'job_id': job_id,    
-                        'metadata': metadata    
-                    })  
-                except Exception as e:  
-                    logger.error(f"❌ ERREUR traitement job {job_id}: {e}")  
-                    import traceback  
-                    traceback.print_exc()  
-                    # Continuer avec les autres jobs  
-                    enriched_jobs.append({  
-                        'job': job,  
-                        'job_id': job_id,  
-                        'metadata': []  
-                    })  
-          
-            logger.info(f"📊 Total jobs enrichis: {len(enriched_jobs)}")  
-          
-            # Passer job_id au contexte pour la navigation
-            return render(request, 'recommendation_engine/odoo_metadata.html', {    
-                'enriched_jobs': enriched_jobs,    
-                'user_role': user.get('role', 'user'),
-                'job_id': first_job_id,
-                'debug_info': {
-                    'available_sources': all_sources,
-                    'total_jobs_found': len(odoo_jobs)
-                }
+            enriched_jobs.append({  
+                'job': job,  
+                'job_id': job_id,  
+                'metadata': metadata,  
+                'record_count': job.get('batch_size', 0)  
             })  
-          
         except Exception as e:  
-            logger.error(f"❌ Erreur globale dans OdooMetadataView: {e}")  
+            logger.error(f"❌ Erreur enrichissement job {job_id}: {e}")  
             import traceback  
             traceback.print_exc()  
-            return render(request, 'recommendation_engine/error.html', {  
-                'error': str(e)  
-            })
+              
+            # Ajouter quand même le job avec métadonnées vides  
+            enriched_jobs.append({  
+                'job': job,  
+                'job_id': job_id,  
+                'metadata': [],  
+                'record_count': job.get('batch_size', 0)  
+            })  
+      
+     logger.info(f"✅ Total jobs enrichis: {len(enriched_jobs)}")  
+     logger.info("🎨 Rendu du template odoo_metadata.html")  
+      
+     return render(request, 'recommendation_engine/odoo_metadata.html', {  
+        'enriched_jobs': enriched_jobs,  
+        'user_role': user.get('role', 'user')  
+     })
 
     def _get_enriched_metadata(self, job_id):    
      """Récupère les métadonnées enrichies pour un job Odoo avec semantic engine"""    
-     logger = logging.getLogger(__name__)  
+     logger = logging.getLogger(__name__) 
+     logger.info(f"🔍 Début _get_enriched_metadata pour job_id: {job_id}")  
+ 
       
      EXCLUDED_ENTITY_TYPES = {  
         'IN_PAN', 'URL', 'DOMAIN_NAME', 'NRP', 'US_BANK_NUMBER',  
@@ -1162,8 +1135,11 @@ class OdooMetadataView(View):
             return existing_metadata  
           
         # ÉTAPE 2 : Récupérer les chunks  
-        chunks_data = list(csv_db.csv_chunks.find({'job_id': str(job_id)}))    
-          
+        chunks_data = list(csv_db.csv_chunks.find({'job_id': str(job_id)})) 
+        logger.info(f"📦 Chunks trouvés: {len(chunks_data)}")  
+   
+        if chunks_data:  
+           logger.info(f"📋 Premier chunk: {chunks_data[0]}")
         if not chunks_data:    
             logger.warning(f"⚠️ Aucun chunk pour job {job_id}")  
             return []    
@@ -1257,7 +1233,11 @@ class OdooMetadataView(View):
                   
                 metadata_list.append(column_metadata)  
           
-        logger.info(f"✅ Métadonnées générées et sauvegardées: {len(metadata_list)} colonnes")  
+
+        logger.info(f"✅ Métadonnées générées et sauvegardées: {len(metadata_list)} colonnes") 
+
+        
+         
         return metadata_list  
           
      except Exception as e:  
