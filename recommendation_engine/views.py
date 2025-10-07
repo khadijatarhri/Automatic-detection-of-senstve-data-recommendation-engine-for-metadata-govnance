@@ -1021,250 +1021,412 @@ class AtlasSyncView(View):
 
 
 class OdooMetadataView(View):
+    """Vue améliorée avec Semantic Analyzer pour métadonnées Odoo"""
+    
     def get(self, request):  
-     logger = logging.getLogger(__name__)  
+        logger = logging.getLogger(__name__)  
+        logger.info("🚀 OdooMetadataView.get() - Début de la requête")  
+        
+        # Authentification
+        user_email = request.session.get("user_email")  
+        if not user_email:  
+            return redirect('login_form')  
+        
+        user = users.find_one({'email': user_email})  
+        if not user or user.get('role') not in ['admin', 'user']:  
+            return redirect('authapp:home')  
+        
+        # Connexion MongoDB locale
+        client = MongoClient('mongodb://mongodb:27017/')  
+        main_db_local = client['main_db']  
+        
+        # Récupérer les JOBS ODOO consolidés
+        odoo_jobs = list(main_db_local.anonymization_jobs.find({  
+            'source': 'kafka_odoo_vrp'  
+        }).sort('upload_date', -1))  
+        
+        logger.info(f"✅ Jobs Odoo trouvés: {len(odoo_jobs)}")
+        
+        # NOUVEAU: Agrégation des métadonnées par type de colonne
+        consolidated_metadata = self._get_consolidated_metadata(odoo_jobs)
+        
+        # Statistiques consolidées
+        stats = self._calculate_consolidated_stats(consolidated_metadata)
+        
+        return render(request, 'recommendation_engine/odoo_metadata.html', {  
+            'consolidated_metadata': consolidated_metadata,
+            'total_jobs': len(odoo_jobs),
+            'stats': stats,
+            'user_role': user.get('role', 'user'),
+            'job_id': str(odoo_jobs[0]['_id']) if odoo_jobs else None  # AJOUT
+        })
+    
+    def _get_consolidated_metadata(self, odoo_jobs):
+        """
+        Agrège les métadonnées par type de colonne sur tous les jobs Odoo.
+        Au lieu d'avoir 19 jobs × 5 colonnes = 95 lignes,
+        on a 5 colonnes consolidées avec les stats globales.
+        """
+        logger = logging.getLogger(__name__)
+        
+        # Dictionnaire pour agréger par nom de colonne
+        columns_aggregated = {}
+        
+        for job in odoo_jobs:
+            job_id = str(job['_id'])
+            
+            # Récupérer ou générer les métadonnées pour ce job
+            metadata_list = self._get_enriched_metadata_with_semantic(job_id)
+            
+            for meta in metadata_list:
+                col_name = meta['column_name']
+                
+                if col_name not in columns_aggregated:
+                    # Première occurrence de cette colonne
+                    columns_aggregated[col_name] = {
+                        'column_name': col_name,
+                        'entity_types': set(meta['entity_types']),
+                        'total_jobs': 1,
+                        'total_records': meta.get('total_entities', 0),
+                        'sample_values': meta.get('sample_values', [])[:3],
+                        'confidence_scores': meta.get('confidence_scores', {}),
+                        'validation_status': meta.get('validation_status', 'pending'),
+                        'recommended_rgpd_category': meta.get('recommended_rgpd_category'),
+                        'recommended_sensitivity_level': meta.get('recommended_sensitivity_level'),
+                        'recommended_ranger_policy': meta.get('recommended_ranger_policy'),
+                        'semantic_context': meta.get('semantic_context', {}),
+                        'last_updated': meta.get('created_at', datetime.now())
+                    }
+                else:
+                    # Agréger les données
+                    agg = columns_aggregated[col_name]
+                    agg['entity_types'].update(meta['entity_types'])
+                    agg['total_jobs'] += 1
+                    agg['total_records'] += meta.get('total_entities', 0)
+                    
+                    # Garder les meilleurs scores de confiance
+                    for entity_type, score in meta.get('confidence_scores', {}).items():
+                        current_score = agg['confidence_scores'].get(entity_type, 0)
+                        agg['confidence_scores'][entity_type] = max(current_score, score)
+                    
+                    # Mettre à jour la date si plus récente
+                    if meta.get('created_at', datetime.min) > agg['last_updated']:
+                        agg['last_updated'] = meta['created_at']
+        
+        # Convertir les sets en listes pour la sérialisation
+        result = []
+        for col_name, agg in columns_aggregated.items():
+            agg['entity_types'] = list(agg['entity_types'])
+            
+            # Calculer le score de confiance moyen
+            if agg['confidence_scores']:
+                agg['avg_confidence'] = sum(agg['confidence_scores'].values()) / len(agg['confidence_scores'])
+            else:
+                agg['avg_confidence'] = 0.0
+            
+            result.append(agg)
+        
+        # Trier par nombre de records (colonnes les plus importantes en premier)
+        result.sort(key=lambda x: x['total_records'], reverse=True)
+        
+        logger.info(f"✅ Métadonnées consolidées: {len(result)} colonnes uniques")
+        return result
+    
+    def _calculate_consolidated_stats(self, consolidated_metadata):
+        """Calcule les statistiques consolidées"""
+        return {
+            'total_columns': len(consolidated_metadata),
+            'total_records': sum(col['total_records'] for col in consolidated_metadata),
+            'validated': sum(1 for col in consolidated_metadata if col['validation_status'] == 'validated'),
+            'pending': sum(1 for col in consolidated_metadata if col['validation_status'] == 'pending'),
+            'rejected': sum(1 for col in consolidated_metadata if col['validation_status'] == 'rejected'),
+            'avg_confidence': sum(col['avg_confidence'] for col in consolidated_metadata) / len(consolidated_metadata) if consolidated_metadata else 0.0
+        }
+    
+    def _get_enriched_metadata_with_semantic(self, job_id):
+        """
+        Version AMÉLIORÉE avec Semantic Analyzer complet.
+        Remplace la détection basique par mots-clés.
+        """
+        logger = logging.getLogger(__name__)
+        logger.info(f"🔍 Analyse sémantique pour job_id: {job_id}")
+        
+        EXCLUDED_ENTITY_TYPES = {
+            'IN_PAN', 'URL', 'DOMAIN_NAME', 'NRP', 'US_BANK_NUMBER',
+            'IN_AADHAAR', 'US_DRIVER_LICENSE', 'UK_NHS'
+        }
+        
+        try:
+            # ÉTAPE 1 : Vérifier cache MongoDB
+            metadata_db = MongoClient('mongodb://mongodb:27017/')['metadata_validation_db']
+            enriched_collection = metadata_db['enriched_metadata']
+            
+            existing_metadata = list(enriched_collection.find({'job_id': str(job_id)}))
+            if existing_metadata:
+                logger.info(f"✅ Métadonnées trouvées dans cache: {len(existing_metadata)}")
+                return existing_metadata
+            
+            # ÉTAPE 2 : Récupérer les chunks
+            csv_db = MongoClient('mongodb://mongodb:27017/')['csv_anonymizer_db']
+            chunks_data = list(csv_db.csv_chunks.find({'job_id': str(job_id)}))
+            
+            if not chunks_data:
+                logger.warning(f"⚠️ Aucun chunk pour job {job_id}")
+                return []
+            
+            headers = chunks_data[0].get('headers', [])
+            
+            # ÉTAPE 3 : Reconstituer sample data
+            sample_data = []
+            for chunk in chunks_data[:1]:  # Premier chunk suffisant
+                chunk_rows = chunk.get('data', [])
+                for row_data in chunk_rows[:20]:  # Analyser 20 lignes pour meilleure précision
+                    if isinstance(row_data, dict):
+                        sample_data.append(row_data)
+                    elif isinstance(row_data, list) and len(row_data) == len(headers):
+                        row_dict = {headers[i]: row_data[i] for i in range(len(headers))}
+                        sample_data.append(row_dict)
+            
+            if not sample_data:
+                return []
+            
+            logger.info(f"📊 Sample data: {len(sample_data)} lignes, {len(headers)} colonnes")
+            
+            # ÉTAPE 4 : Initialiser le Semantic Analyzer
+            try:
+                analyzer = create_enhanced_analyzer_engine("moroccan_entities_model_v2")
+                semantic_analyzer = SemanticAnalyzer("moroccan_entities_model_v2")
+                auto_tagger = IntelligentAutoTagger(analyzer, semantic_analyzer)
+                logger.info("✅ Semantic Analyzer initialisé")
+            except Exception as e:
+                logger.error(f"❌ Erreur Semantic Analyzer: {e}")
+                # Fallback sur détection basique
+                return self._fallback_basic_detection(job_id, headers, sample_data)
+            
+            # ÉTAPE 5 : Analyser chaque colonne avec Semantic Analyzer
+            metadata_list = []
+            
+            for header in headers:
+                column_values = []
+                for row in sample_data:
+                    value = row.get(header)
+                    if value and str(value).strip():
+                        column_values.append(str(value).strip())
+                
+                if not column_values:
+                    continue
+                
+                # Analyse sémantique complète
+                detected_entities = {}  # {entity_type: max_confidence}
+                sample_values = []
+                semantic_contexts = []
+                
+                for value in column_values[:10]:  # Top 10 pour performance
+                    try:
+                        # ANALYSE PRESIDIO + SPACY
+                        results = analyzer.analyze(text=value, language='fr')
+                        
+                        # Analyse contextuelle
+                        context_scores = semantic_analyzer.analyze_semantic_context(value)
+                        semantic_contexts.append(context_scores)
+                        
+                        for entity in results:
+                            if entity.entity_type in EXCLUDED_ENTITY_TYPES:
+                                continue
+                            
+                            # Garder le meilleur score
+                            current_score = detected_entities.get(entity.entity_type, 0.0)
+                            detected_entities[entity.entity_type] = max(current_score, entity.score)
+                            
+                            if len(sample_values) < 3:
+                                sample_values.append(value)
+                    
+                    except Exception as e:
+                        logger.warning(f"Erreur analyse '{value}': {e}")
+                        continue
+                
+                # Calculer le contexte sémantique moyen
+                avg_context = {}
+                if semantic_contexts:
+                    for context_key in ['financial', 'identity', 'contact', 'location', 'behavioral']:
+                        avg_context[context_key] = sum(ctx.get(context_key, 0) for ctx in semantic_contexts) / len(semantic_contexts)
+                
+                # Déterminer les recommandations basées sur le contexte
+                if detected_entities:
+                    # Prendre le type d'entité avec le meilleur score
+                    best_entity_type = max(detected_entities, key=detected_entities.get)
+                    best_confidence = detected_entities[best_entity_type]
+                    
+                    # Recommandations contextuelles
+                    sensitivity = semantic_analyzer.determine_sensitivity_level(
+                        best_entity_type, avg_context
+                    )
+                    category = semantic_analyzer.determine_data_category(
+                        best_entity_type, avg_context
+                    )
+                    
+                    rgpd_category = semantic_analyzer.rgpd_mapping.get(
+                        best_entity_type, "Non défini"
+                    )
+                    ranger_policy = self._determine_ranger_policy(
+                        best_entity_type, sensitivity
+                    )
+                    
+                    column_metadata = {
+                        'job_id': str(job_id),
+                        'column_name': header,
+                        'entity_types': list(detected_entities.keys()),
+                        'confidence_scores': detected_entities,
+                        'avg_confidence': sum(detected_entities.values()) / len(detected_entities),
+                        'sample_values': sample_values,
+                        'total_entities': len([v for v in column_values if v]),
+                        'semantic_context': avg_context,
+                        'recommended_rgpd_category': rgpd_category,
+                        'recommended_sensitivity_level': sensitivity.value,
+                        'recommended_ranger_policy': ranger_policy,
+                        'validation_status': 'pending',
+                        'atlas_sync_status': 'not_synced',
+                        'created_at': datetime.now()
+                    }
+                    
+                    # Sauvegarder dans MongoDB
+                    enriched_collection.update_one(
+                        {'job_id': str(job_id), 'column_name': header},
+                        {'$set': column_metadata},
+                        upsert=True
+                    )
+                    
+                    metadata_list.append(column_metadata)
+            
+            logger.info(f"✅ Métadonnées générées: {len(metadata_list)} colonnes")
+            return metadata_list
+        
+        except Exception as e:
+            logger.error(f"❌ Erreur _get_enriched_metadata_with_semantic: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+    
+    def _determine_ranger_policy(self, entity_type, sensitivity_level):
+        """Détermine la politique Ranger basée sur l'entité et la sensibilité"""
+        
+        mapping = {
+            'PERSON': 'ranger_masking_policy_person',
+            'ID_MAROC': 'ranger_hashing_policy_id',
+            'PHONE_NUMBER': 'ranger_partial_masking_policy_phone',
+            'EMAIL_ADDRESS': 'ranger_partial_masking_policy_email',
+            'LOCATION': 'ranger_generalization_policy_location',
+            'IBAN_CODE': 'ranger_encryption_policy_financial',
+            'CREDIT_CARD': 'ranger_encryption_policy_financial'
+        }
+        
+        # Si sensibilité très élevée, forcer le chiffrement
+        if sensitivity_level.value == 'PERSONAL_DATA':
+            if entity_type in ['IBAN_CODE', 'CREDIT_CARD', 'ID_MAROC']:
+                return 'ranger_encryption_policy_financial'
+        
+        return mapping.get(entity_type, 'ranger_hashing_policy_id')
+    
+    def _fallback_basic_detection(self, job_id, headers, sample_data):
+        """Fallback si le Semantic Analyzer échoue"""
+        logger = logging.getLogger(__name__)
+        logger.warning("⚠️ Utilisation de la détection basique (fallback)")
+        
+        metadata_list = []
+        
+        for header in headers:
+            header_lower = header.lower()
+            
+            # Détection basique par mots-clés
+            if any(word in header_lower for word in ['email', 'mail', '@']):
+                entity_type = 'EMAIL_ADDRESS'
+                rgpd_cat = 'Données de contact'
+            elif any(word in header_lower for word in ['phone', 'tel', 'mobile']):
+                entity_type = 'PHONE_NUMBER'
+                rgpd_cat = 'Données de contact'
+            elif any(word in header_lower for word in ['name', 'nom', 'prenom']):
+                entity_type = 'PERSON'
+                rgpd_cat = "Données d'identification"
+            elif any(word in header_lower for word in ['location', 'address', 'adresse']):
+                entity_type = 'LOCATION'
+                rgpd_cat = 'Données de localisation'
+            else:
+                entity_type = 'UNKNOWN'
+                rgpd_cat = 'Non défini'
+            
+            metadata_list.append({
+                'job_id': str(job_id),
+                'column_name': header,
+                'entity_types': [entity_type],
+                'confidence_scores': {entity_type: 0.5},  # Faible confiance
+                'avg_confidence': 0.5,
+                'sample_values': [],
+                'total_entities': 0,
+                'recommended_rgpd_category': rgpd_cat,
+                'recommended_sensitivity_level': 'INTERNAL',
+                'recommended_ranger_policy': 'ranger_hashing_policy_id',
+                'validation_status': 'pending'
+            })
+        
+        return metadata_list
+    
+
+
+class ColumnValidationConsolidatedView(View):  
+     """Validation consolidée qui s'applique à tous les jobs Odoo avec cette colonne"""  
       
-    # Log 1: Début de la requête  
-     logger.info("🚀 OdooMetadataView.get() - Début de la requête")  
-      
-    # Authentification  
-     user_email = request.session.get("user_email")  
-     logger.info(f"📧 User email depuis session: {user_email}")  
-      
-     if not user_email:  
-        logger.warning("⚠️ Pas d'email - redirection vers login")  
-        return redirect('login_form')  
-      
-    # Vérification utilisateur  
-     user = users.find_one({'email': user_email})  
-     logger.info(f"👤 User trouvé: {user.get('email') if user else 'None'}, role: {user.get('role') if user else 'None'}")  
-      
-     if not user or user.get('role') not in ['admin', 'user']:  
-        logger.warning(f"⚠️ Rôle invalide ({user.get('role') if user else 'None'}) - redirection")  
-        return redirect('authapp:home')  
-      
-    # DÉBOGAGE : Vérifier la connexion main_db importée  
-     logger.info(f"🔍 main_db importé - type: {type(main_db)}")  
-     logger.info(f"🔍 main_db importé - database name: {main_db.name if hasattr(main_db, 'name') else 'N/A'}")  
-      
-    # CORRECTION : Créer une connexion MongoDB locale explicite  
-     logger.info("🔌 Création connexion MongoDB locale explicite")  
-     client = MongoClient('mongodb://mongodb:27017/')  
-     main_db_local = client['main_db']  
-      
-    # Test avec connexion explicite  
-     logger.info("🧪 Test count avec connexion explicite")  
-     test_count = main_db_local.anonymization_jobs.count_documents({'source': 'kafka_odoo_vrp'})  
-     logger.info(f"🔍 Test count résultat: {test_count} jobs avec source='kafka_odoo_vrp'")  
-      
-    # Vérifier toutes les sources disponibles  
-     all_sources = main_db_local.anonymization_jobs.distinct('source')  
-     logger.info(f"🔍 Toutes les sources dans la DB: {all_sources}")  
-      
-    # Récupérer les JOBS BATCH avec connexion locale  
-     logger.info("📦 Récupération des jobs Odoo avec connexion locale")  
-     odoo_jobs = list(main_db_local.anonymization_jobs.find({  
-        'source': 'kafka_odoo_vrp'  
-     }).sort('upload_date', -1))  
-      
-     logger.info(f"✅ Jobs Odoo batch trouvés: {len(odoo_jobs)}")  
-      
-    # Log détaillé de chaque job trouvé  
-     for idx, job in enumerate(odoo_jobs):  
-        logger.info(f"📋 Job {idx+1}: _id={job['_id']}, filename={job.get('original_filename')}, source={job.get('source')}")  
-      
-    # Enrichir les jobs  
-     logger.info("🔄 Début enrichissement des jobs")  
-     enriched_jobs = []  
-      
-     for job in odoo_jobs:  
-        job_id = str(job['_id'])  
-        logger.info(f"🔍 Traitement job_id: {job_id}")  
+     def post(self, request, column_name):  
+        logger = logging.getLogger(__name__)  
+          
+        if not request.session.get("user_email"):  
+            return JsonResponse({'error': 'Non autorisé'}, status=401)  
           
         try:  
-            # Récupérer les métadonnées  
-            metadata = self._get_enriched_metadata(job_id)  
-            logger.info(f"✅ Métadonnées récupérées pour {job_id}: {len(metadata)} colonnes")  
+            data = json.loads(request.body)  
               
-            enriched_jobs.append({  
-                'job': job,  
-                'job_id': job_id,  
-                'metadata': metadata,  
-                'record_count': job.get('batch_size', 0)  
+            entity_type = data.get('entity_type')  
+            validation_status = data.get('validation_status')  
+            rgpd_category = data.get('rgpd_category')  
+            sensitivity_level = data.get('sensitivity_level')  
+            ranger_policy = data.get('ranger_policy')  
+            comments = data.get('comments', '')  
+              
+            # Connexion MongoDB  
+            metadata_db = MongoClient('mongodb://mongodb:27017/')['metadata_validation_db']  
+            enriched_collection = metadata_db['enriched_metadata']  
+              
+            # CRITIQUE: Mettre à jour TOUTES les métadonnées avec ce nom de colonne  
+            # (tous les jobs Odoo qui contiennent cette colonne)  
+            update_doc = {  
+                'entity_type': entity_type,  
+                'validation_status': validation_status,  
+                'recommended_rgpd_category': rgpd_category,  
+                'recommended_sensitivity_level': sensitivity_level,  
+                'recommended_ranger_policy': ranger_policy,  
+                'annotation_comments': comments,  
+                'validated_by': request.session.get("user_email"),  
+                'validation_date': datetime.now(),  
+                'updated_at': datetime.now(),  
+                'ready_for_atlas_sync': validation_status == 'validated'  
+            }  
+              
+            # Mise à jour en masse pour tous les jobs avec cette colonne  
+            result = enriched_collection.update_many(  
+                {'column_name': column_name},  # Tous les jobs avec cette colonne  
+                {'$set': update_doc}  
+            )  
+              
+            logger.info(f"✅ Validation consolidée: {column_name} -> {result.modified_count} documents mis à jour")  
+              
+            return JsonResponse({  
+                'success': True,  
+                'message': f'Validation appliquée à {result.modified_count} batches',  
+                'modified_count': result.modified_count,  
+                'validation_status': validation_status  
             })  
+              
         except Exception as e:  
-            logger.error(f"❌ Erreur enrichissement job {job_id}: {e}")  
+            logger.error(f"❌ Erreur validation consolidée: {e}")  
             import traceback  
             traceback.print_exc()  
-              
-            # Ajouter quand même le job avec métadonnées vides  
-            enriched_jobs.append({  
-                'job': job,  
-                'job_id': job_id,  
-                'metadata': [],  
-                'record_count': job.get('batch_size', 0)  
-            })  
-      
-     logger.info(f"✅ Total jobs enrichis: {len(enriched_jobs)}")  
-     logger.info("🎨 Rendu du template odoo_metadata.html")  
-      
-     return render(request, 'recommendation_engine/odoo_metadata.html', {  
-        'enriched_jobs': enriched_jobs,  
-        'user_role': user.get('role', 'user')  
-     })
-
-    def _get_enriched_metadata(self, job_id):    
-     """Récupère les métadonnées enrichies pour un job Odoo avec semantic engine"""    
-     logger = logging.getLogger(__name__) 
-     logger.info(f"🔍 Début _get_enriched_metadata pour job_id: {job_id}")  
- 
-      
-     EXCLUDED_ENTITY_TYPES = {  
-        'IN_PAN', 'URL', 'DOMAIN_NAME', 'NRP', 'US_BANK_NUMBER',  
-        'IN_AADHAAR', 'US_DRIVER_LICENSE', 'UK_NHS'  
-     }  
-      
-     try:  
-        # ÉTAPE 1 : Vérifier si métadonnées déjà générées  
-        metadata_db = MongoClient('mongodb://mongodb:27017/')['metadata_validation_db']  
-        enriched_collection = metadata_db['enriched_metadata']  
-          
-        existing_metadata = list(enriched_collection.find({'job_id': str(job_id)}))  
-        if existing_metadata:  
-            logger.info(f"✅ Métadonnées trouvées dans DB: {len(existing_metadata)}")  
-            return existing_metadata  
-          
-        # ÉTAPE 2 : Récupérer les chunks  
-        chunks_data = list(csv_db.csv_chunks.find({'job_id': str(job_id)})) 
-        logger.info(f"📦 Chunks trouvés: {len(chunks_data)}")  
-   
-        if chunks_data:  
-           logger.info(f"📋 Premier chunk: {chunks_data[0]}")
-        if not chunks_data:    
-            logger.warning(f"⚠️ Aucun chunk pour job {job_id}")  
-            return []    
-            
-        headers = chunks_data[0].get('headers', [])    
-        logger.info(f"📋 Headers: {headers}")  
-          
-        # ÉTAPE 3 : Reconstituer sample data  
-        sample_data = []  
-        for chunk in chunks_data[:1]:  
-            chunk_rows = chunk.get('data', [])  
-            for row_data in chunk_rows[:10]:  
-                if isinstance(row_data, dict):  
-                    sample_data.append(row_data)  
-                elif isinstance(row_data, list) and len(row_data) == len(headers):  
-                    row_dict = {headers[i]: row_data[i] for i in range(len(headers))}  
-                    sample_data.append(row_dict)  
-          
-        if not sample_data:  
-            logger.warning(f"⚠️ Pas de sample data pour job {job_id}")  
-            return []  
-          
-        logger.info(f"📊 Sample data: {len(sample_data)} lignes")  
-          
-        # ÉTAPE 4 : Initialiser semantic engine  
-        try:  
-            analyzer = create_enhanced_analyzer_engine("moroccan_entities_model_v2")  
-            semantic_analyzer = SemanticAnalyzer("moroccan_entities_model_v2")  
-            auto_tagger = IntelligentAutoTagger(analyzer, semantic_analyzer)  
-            logger.info("✅ Semantic engine initialisé")  
-        except Exception as e:  
-            logger.error(f"❌ Erreur semantic engine: {e}")  
-            return []  
-          
-        # ÉTAPE 5 : Analyser chaque colonne  
-        metadata_list = []  
-        for header in headers:  
-            column_values = [str(row.get(header, '')) for row in sample_data if row.get(header)]  
-              
-            if not column_values:  
-                continue  
-              
-            detected_entities = set()  
-            sample_values = []  
-            total_entities = 0  
-              
-            for value in column_values[:5]:  
-                if not value or not value.strip():  
-                    continue  
-                  
-                try:  
-                    results = analyzer.analyze(text=value, language='fr')  
-                      
-                    for entity in results:  
-                        if entity.entity_type not in EXCLUDED_ENTITY_TYPES:  
-                            detected_entities.add(entity.entity_type)  
-                            total_entities += 1  
-                              
-                            if len(sample_values) < 3:  
-                                sample_values.append(value)  
-                                  
-                except Exception as e:  
-                    logger.error(f"Erreur analyse '{value}': {e}")  
-                    continue  
-              
-            if detected_entities or column_values:  
-                rgpd_category = self._get_rgpd_category(detected_entities)  
-                sensitivity_level = self._get_sensitivity_level(detected_entities)  
-                ranger_policy = self._get_ranger_policy(detected_entities)  
-                  
-                column_metadata = {  
-                    'job_id': str(job_id),  
-                    'column_name': header,  
-                    'entity_types': list(detected_entities) if detected_entities else ['UNKNOWN'],  
-                    'sample_values': sample_values if sample_values else column_values[:3],  
-                    'total_entities': total_entities,  
-                    'recommended_rgpd_category': rgpd_category,  
-                    'recommended_sensitivity_level': sensitivity_level,  
-                    'recommended_ranger_policy': ranger_policy,  
-                    'validation_status': 'pending',  
-                    'atlas_sync_status': 'not_synced',  
-                    'created_at': datetime.now()  
-                }  
-                  
-                # CRITIQUE : Sauvegarder dans MongoDB  
-                enriched_collection.update_one(  
-                    {'job_id': str(job_id), 'column_name': header},  
-                    {'$set': column_metadata},  
-                    upsert=True  
-                )  
-                  
-                metadata_list.append(column_metadata)  
-          
-
-        logger.info(f"✅ Métadonnées générées et sauvegardées: {len(metadata_list)} colonnes") 
-
-        
-         
-        return metadata_list  
-          
-     except Exception as e:  
-        logger.error(f"❌ Erreur _get_enriched_metadata: {e}")  
-        import traceback  
-        traceback.print_exc()  
-        return []
-    
-    def _get_rgpd_category(self, entity_types):  
-        if any(e in entity_types for e in ['PERSON', 'EMAIL_ADDRESS']):  
-            return "Données d'identification"  
-        elif 'PHONE_NUMBER' in entity_types:  
-            return "Données de contact"  
-        elif 'LOCATION' in entity_types:  
-            return "Données de localisation"  
-        return "Non défini"  
-      
-    def _get_sensitivity_level(self, entity_types):  
-        if entity_types and 'UNKNOWN' not in entity_types:  
-            return "PERSONAL_DATA"  
-        return "INTERNAL"  
-      
-    def _get_ranger_policy(self, entity_types):  
-        if 'PERSON' in entity_types:  
-            return "ranger_masking_policy_person"  
-        elif 'PHONE_NUMBER' in entity_types:  
-            return "ranger_partial_masking_policy_phone"  
-        elif 'EMAIL_ADDRESS' in entity_types:
-            return "ranger_partial_masking_policy_email"
-        return "ranger_hashing_policy_id"
+            return JsonResponse({'error': str(e)}, status=500)

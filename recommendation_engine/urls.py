@@ -9,6 +9,7 @@ urlpatterns = [
     path('metadata/<str:job_id>/', views.MetadataView.as_view(), name='metadata'), 
     path('validation/<str:job_id>/<str:entity_id>/', views.ValidationWorkflowView.as_view(), name='validation'),
     path('column-validation/<str:job_id>/<str:column_name>/', views.ColumnValidationWorkflowView.as_view(), name='column_validation'),
+    path('column-validation-consolidated/<str:column_name>/', views.ColumnValidationConsolidatedView.as_view(), name='column_validation_consolidated'),
     path('sync-atlas/',views.AtlasSyncView.as_view(),name='sync_atlas'),
     path('glossary/', views.GlossaryView.as_view(), name='glossary'),  
     path('glossary/sync/', views.GlossarySyncView.as_view(), name='glossary_sync'),
