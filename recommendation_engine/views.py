@@ -128,18 +128,38 @@ class RecommendationView(View):
                 'error': f'Erreur lors du chargement des recommandations: {str(e)}'
             })
     
-    def _get_or_generate_recommendations(self, job_id, job):
-        """Récupère les recommandations existantes ou les génère"""
-        
-        # Vérifier s'il existe déjà des recommandations sauvegardées
-        existing_recommendations = main_db.recommendations.find_one({'job_id': job_id})
-        if existing_recommendations and existing_recommendations.get('recommendations_data'):
-            print(f"Recommandations existantes trouvées pour job {job_id}")
-            return existing_recommendations['recommendations_data']
-        
-        # Générer de nouvelles recommandations
-        print(f"Génération de nouvelles recommandations pour job {job_id}")
-        return self._generate_fresh_recommendations(job_id, job)
+    def _get_or_generate_recommendations(self, job_id, job):  
+     """Récupère les recommandations existantes ou les génère"""  
+     from .models import RecommendationItem  
+     from datetime import datetime  
+      
+     existing_recommendations = main_db.recommendations.find_one({'job_id': job_id})  
+     if existing_recommendations and existing_recommendations.get('recommendations_data'):  
+        print(f"Recommandations existantes trouvées pour job {job_id}")  
+          
+        # CORRECTION: Reconvertir les dictionnaires en objets RecommendationItem  
+        recs_data = existing_recommendations['recommendations_data']  
+          
+        # Convertir recommendations  
+        if 'recommendations' in recs_data:  
+            recs_data['recommendations'] = [  
+                RecommendationItem(**rec) if isinstance(rec, dict) else rec  
+                for rec in recs_data['recommendations']  
+            ]  
+          
+        # Convertir recommendations_by_category  
+        if 'recommendations_by_category' in recs_data:  
+            for category in recs_data['recommendations_by_category']:  
+                recs_data['recommendations_by_category'][category] = [  
+                    RecommendationItem(**rec) if isinstance(rec, dict) else rec  
+                    for rec in recs_data['recommendations_by_category'][category]  
+                ]  
+          
+        return recs_data  
+      
+     # Générer de nouvelles recommandations  
+     print(f"Génération de nouvelles recommandations pour job {job_id}")  
+     return self._generate_fresh_recommendations(job_id, job)
     
     def _generate_fresh_recommendations(self, job_id, job):
         """Génère de nouvelles recommandations"""
